@@ -4,6 +4,13 @@ GG3 -- Neural Data Analysis (Undergraduate IIA project, Department of Engineerin
 ## Overview
 
 
+
+## Venv and jupyter kernel setup
+
+To create and enter venv: Open a PowerShell terminal in VS code and run .\setup_venv.ps1
+
+Select this Kernel in any jupyter notebooks to ensure dependencies.
+
 ## Credit
 
 Source code for this repo was provided by Yashar Ahmadian and can be found at https://github.com/ahmadianlab/gg3_nda/tree/main
