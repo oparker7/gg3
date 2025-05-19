@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import models
+from scipy.signal import convolve
+
 
 
 def rasterPlot(spikes, title='Raster Plot'):
@@ -221,7 +223,7 @@ def fano_factor(model, n_trials=500, T=1000,
     if ax is None: ax = plt.gca()
     ax.plot(times, fano, label=label)
     ax.set_xlabel("time (ms)"); ax.set_ylabel("Fano factor")
-    ax.set_ylim(bottom=0)
+    ax.set_ylim(bottom=0, top=1.8)
     ax.grid(True, ls='--', lw=.4, color='#e5e5e5')
     return times, fano
 
