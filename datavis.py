@@ -155,8 +155,27 @@ def _smooth(arr, win):
     """simple boxcar smoothing"""
     if win is None or win < 2:
         return arr
+    
     kernel = np.ones(int(win)) / win
     return convolve(arr, kernel, mode='same')
+
+
+# convolution with 1d laplacian kernel
+def laplacian(arr, plot=True):
+    laplacian1d = np.array([-1, 16, -30, 16, -1]) / 12
+    response = convolve(arr, laplacian1d, mode = 'same')
+
+
+    if plot:
+        plt.figure(figsize=(10, 4))
+        plt.plot(x, label='Original Signal')
+        plt.plot(response, label='Laplacian Response', linestyle='--')
+        plt.legend()
+        plt.title("Pulse Detection Using 1D Laplacian Kernel")
+        plt.grid(True)
+        plt.show()
+
+    return response
 
 # ️ PSTH grids for Ramp & Step
 def psth_grid(model_cls, p1_list, p2_list,
@@ -206,9 +225,9 @@ def psth_grid(model_cls, p1_list, p2_list,
 #           "m", "r", n_trials=200, bin_width=20, smooth_ms=20)
 
 # Fano-factor time–series for a single setting
-def fano_factor(model, n_trials=500, T=1000,
+def fanoFactor(model, n_trials=5000, T=1000,
                 bin_width=50, smooth_ms=None,
-                ax=None, label=None):
+                ax=None, label=None, plot=False):
     edges, n_bins = _bin_edges_and_count(bin_width, T)
     spikes, *_    = model.simulate(Ntrials=n_trials, T=T)
 
@@ -220,11 +239,13 @@ def fano_factor(model, n_trials=500, T=1000,
     fano   = _smooth(fano, smooth_ms // bin_width if smooth_ms else None)
 
     times = edges[:-1] + bin_width/2
-    if ax is None: ax = plt.gca()
-    ax.plot(times, fano, label=label)
-    ax.set_xlabel("time (ms)"); ax.set_ylabel("Fano factor")
-    ax.set_ylim(bottom=0, top=1.8)
-    ax.grid(True, ls='--', lw=.4, color='#e5e5e5')
+    if plot:
+        if ax is None: ax = plt.gca()
+        ax.plot(times, fano, label=label)
+        ax.set_xlabel("time (ms)"); ax.set_ylabel("Fano factor")
+        ax.set_ylim(bottom=0, top=1.8)
+        ax.grid(True, ls='--', lw=.4, color='#e5e5e5')
+
     return times, fano
 
 # ️ PSTH fluctuation vs #trials (quantitative Task 1.2)
