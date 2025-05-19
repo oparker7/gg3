@@ -1,7 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import models
 
-def raster_plot(spikes, title='Raster Plot'):
+
+def rasterPlot(spikes, title='Raster Plot'):
     
     # convert the spike train into an array of spike times
 
@@ -16,25 +18,6 @@ def raster_plot(spikes, title='Raster Plot'):
     plt.title(title)
     
     plt.tight_layout()
-    plt.show()
-
-def jump_hist(jump_times):
-
-    plt.hist(jump_times, bins=30)
-    plt.xlabel('Jump Time')
-    plt.ylabel('Frequency')
-    plt.show()
-
-def walk_plot(trajectories):
-    N = len(trajectories)
-    T = len(trajectories[0])
-    for i in range(N):
-        plt.plot(range(T), trajectories[i], label=f'Line {i+1}')
-
-    plt.xlabel('Time')
-    plt.ylabel('x')
-    plt.title('Ramp Model Random Walk')
-    plt.legend()
     plt.show()
 
 # ---------- helpers ---------- #
@@ -64,7 +47,7 @@ _spike_bound_handles = [
 # ------------------------------------------------------------------ #
 #                          RAMP  PLOTS                               #
 # ------------------------------------------------------------------ #
-def ramp_raster_plot(beta_list=[0.3, 1, 3], sigma_list=[0.05, .15, .3],
+def rampRasterPlot(beta_list=[0.3, 1, 3], sigma_list=[0.05, .15, .3],
                      n_trials=500, T=1000, N_show=10):
     fig, ax = _figure_grid(len(beta_list), len(sigma_list))
     for i, b in enumerate(beta_list):
@@ -89,7 +72,7 @@ def ramp_raster_plot(beta_list=[0.3, 1, 3], sigma_list=[0.05, .15, .3],
     return fig
 
 
-def ramp_walk_plot(beta_list=[0.3, 1, 3], sigma_list=[0.05, .15, .3],
+def rampWalkPlot(beta_list=[0.3, 1, 3], sigma_list=[0.05, .15, .3],
                    n_trials=500, T=1000):
     fig, ax = _figure_grid(len(beta_list), len(sigma_list))
     for i, b in enumerate(beta_list):
@@ -110,7 +93,7 @@ def ramp_walk_plot(beta_list=[0.3, 1, 3], sigma_list=[0.05, .15, .3],
 # ------------------------------------------------------------------ #
 #                          STEP  PLOTS                               #
 # ------------------------------------------------------------------ #
-def step_raster_plot(m_list=[200, 500, 800], r_list=[3, 30, 300],
+def stepRasterPlot(m_list=[200, 500, 800], r_list=[3, 30, 300],
                      n_trials=500, T=1000, N_show=10):
     fig, ax = _figure_grid(len(m_list), len(r_list))
     for i, m in enumerate(m_list):
@@ -131,7 +114,7 @@ def step_raster_plot(m_list=[200, 500, 800], r_list=[3, 30, 300],
     return fig
 
 
-def step_walk_plot(m_list=[200, 500, 800], r_list=[3, 30, 300],
+def stepWalkPlot(m_list=[200, 500, 800], r_list=[3, 30, 300],
                    n_trials=500, T=1000):
     fig, ax = _figure_grid(len(m_list), len(r_list))
     for i, m in enumerate(m_list):
@@ -147,4 +130,157 @@ def step_walk_plot(m_list=[200, 500, 800], r_list=[3, 30, 300],
 
     ax[0, 0].legend(frameon=False)
     plt.tight_layout()
+    return fig
+
+# ------------------------------------------------------------
+# --------------  Common utilities / styling  ----------------
+# ------------------------------------------------------------
+def _pretty_grid(nr, nc, figsize=(12, 12), suptitle=None, ypad=.93):
+    fig, ax = plt.subplots(nr, nc, figsize=figsize,
+                           sharex=True, sharey=True, squeeze=False)
+    for a in ax.ravel():
+        a.grid(True, ls='--', lw=.4, color='#e5e5e5')
+        a.set_facecolor("#fafafa")
+    if suptitle:
+        fig.suptitle(suptitle, y=ypad, fontsize=14)
+    return fig, ax
+
+def _bin_edges_and_count(bin_width, T=1000):
+    edges = np.arange(0, T + 1, bin_width)   # inclusive 1000
+    return edges, len(edges) - 1
+
+def _smooth(arr, win):
+    """simple boxcar smoothing"""
+    if win is None or win < 2:
+        return arr
+    kernel = np.ones(int(win)) / win
+    return convolve(arr, kernel, mode='same')
+
+# ️ PSTH grids for Ramp & Step
+def psth_grid(model_cls, p1_list, p2_list,
+              p1_name, p2_name,
+              n_trials=100, T=1000,
+              bin_width=50, smooth_ms=None,
+              ymax=55):
+    """
+    Creates a grid of PSTH panels.
+      model_cls : models.RampModel  or models.StepModel
+      p1_list   : list of first parameter (β or m)
+      p2_list   : list of second parameter (σ or r)
+    """
+    edges, n_bins = _bin_edges_and_count(bin_width, T)
+    fig, ax = _pretty_grid(len(p1_list), len(p2_list),
+                           suptitle=f"PSTH grid – {model_cls.__name__}")
+
+    for i, p1 in enumerate(p1_list):
+        for j, p2 in enumerate(p2_list):
+
+            model = model_cls(p1, p2) if model_cls is models.StepModel \
+                    else model_cls(beta=p1, sigma=p2)
+
+            spikes, *_ = model.simulate(Ntrials=n_trials, T=T)
+            # flatten spike times across trials
+            spike_times = np.where(spikes)[1]  # column indices are times
+            psth, _ = np.histogram(spike_times, bins=edges)
+            psth = psth / n_trials / (bin_width / 1000)   # to Hz
+            psth = _smooth(psth, smooth_ms // bin_width if smooth_ms else None)
+
+            ax[i, j].bar(edges[:-1], psth, width=bin_width, align='edge',
+                         color="#4a90e2")
+            ax[i, j].set_ylim(0, ymax)
+            ax[i, j].set_xlim(0, T)
+            ax[i, j].set_title(fr"{p1_name}={p1} | {p2_name}={p2}", fontsize=9)
+
+    ax[-1, 0].set_xlabel("time (ms)")
+    for r in ax:
+        r[0].set_ylabel("Hz")
+    fig.tight_layout(rect=[0, 0, 1, .92])
+    return fig
+
+# Example quick calls
+# psth_grid(models.RampModel, [0.3,1,3], [0.05,.15,.3],
+#           "β", "σ", n_trials=200, bin_width=20, smooth_ms=20)
+# psth_grid(models.StepModel, [200,500,800], [3,30,300],
+#           "m", "r", n_trials=200, bin_width=20, smooth_ms=20)
+
+# Fano-factor time–series for a single setting
+def fano_factor(model, n_trials=500, T=1000,
+                bin_width=50, smooth_ms=None,
+                ax=None, label=None):
+    edges, n_bins = _bin_edges_and_count(bin_width, T)
+    spikes, *_    = model.simulate(Ntrials=n_trials, T=T)
+
+    # Count spikes in each bin for every trial  ->  (n_trials, n_bins)
+    binned = np.add.reduceat(spikes, edges[:-1], axis=1)
+    mean   = binned.mean(axis=0)
+    var    = binned.var(axis=0)
+    fano   = var / mean
+    fano   = _smooth(fano, smooth_ms // bin_width if smooth_ms else None)
+
+    times = edges[:-1] + bin_width/2
+    if ax is None: ax = plt.gca()
+    ax.plot(times, fano, label=label)
+    ax.set_xlabel("time (ms)"); ax.set_ylabel("Fano factor")
+    ax.set_ylim(bottom=0)
+    ax.grid(True, ls='--', lw=.4, color='#e5e5e5')
+    return times, fano
+
+# ️ PSTH fluctuation vs #trials (quantitative Task 1.2)
+def psth_variability(model_cls, params, trial_grid=(10,50,100,200,500,1000),
+                     repeats=10, bin_width=50, T=1000):
+    """
+    Calculates the standard deviation of PSTH estimates across 'repeats'
+    datasets for each N in trial_grid.
+      params = dict(beta=…, sigma=…)  or  dict(m=…, r=…)
+    Returns two arrays: Ns, std_err
+    """
+    edges, n_bins = _bin_edges_and_count(bin_width, T)
+    stds = []
+    for N in trial_grid:
+        psths = []
+        for _ in range(repeats):
+            model = model_cls(**params)
+            spikes, *_ = model.simulate(Ntrials=N, T=T)
+            spike_times = np.where(spikes)[1]
+            psth, _ = np.histogram(spike_times, bins=edges)
+            psth = psth / N / (bin_width / 1000)
+            psths.append(psth)
+        psths = np.stack(psths)
+        stds.append(psths.std(axis=0).mean())   # average over time bins
+
+    return np.array(trial_grid), np.array(stds)
+
+# Example plot:
+# Ns, errs = psth_variability(models.RampModel, dict(beta=1, sigma=.15))
+# plt.figure(); plt.loglog(Ns, errs, marker='o'); plt.xlabel("N trials");
+# plt.ylabel("avg PSTH std dev"); plt.grid(True, which='both', ls='--')
+
+#  Overlay comparison – find matched PSTHs
+def overlay_psth_comparison(ramp_params, step_params,
+                            n_trials=500, T=1000,
+                            bin_width=20, smooth_ms=20):
+    """
+    Overlays Ramp vs Step PSTHs in one figure to visually judge similarity.
+    """
+    edges, _ = _bin_edges_and_count(bin_width, T)
+
+    fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+    for model_cls, pars, color, name in [
+        (models.RampModel, ramp_params, "#4a90e2", "Ramp"),
+        (models.StepModel, step_params, "#e26a4a", "Step")
+    ]:
+        model = model_cls(**pars)
+        spikes, *_ = model.simulate(Ntrials=n_trials, T=T)
+        spike_times = np.where(spikes)[1]
+        psth, _ = np.histogram(spike_times, bins=edges)
+        psth = psth / n_trials / (bin_width/1000)
+        psth = _smooth(psth, smooth_ms // bin_width if smooth_ms else None)
+
+        ax.plot(edges[:-1] + bin_width/2, psth, lw=2, label=name, color=color)
+
+    ax.set_xlabel("time (ms)"); ax.set_ylabel("Hz")
+    ax.set_xlim(0, T); ax.set_ylim(0)
+    ax.legend(); ax.grid(True, ls='--', lw=.4)
+    ax.set_title("Ramp vs Step PSTH overlay")
+    fig.tight_layout()
     return fig
