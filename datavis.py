@@ -168,7 +168,6 @@ def laplacian(arr, plot=True):
 
     if plot:
         plt.figure(figsize=(10, 4))
-        plt.plot(x, label='Original Signal')
         plt.plot(response, label='Laplacian Response', linestyle='--')
         plt.legend()
         plt.title("Pulse Detection Using 1D Laplacian Kernel")
