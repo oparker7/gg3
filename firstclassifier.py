@@ -99,23 +99,6 @@ def maxFanoDeriv(dataset, datasize, T=1000, bw=20, threshold=0.002):
 
     return   g_max, classifier 
 
-def minMaxClassifier(dataset, datasize, T=1000, bw=20, threshold=1.22):
-
-    fanos = np.array([fanoFac(dataset[i],
-                    bin_width=bw,
-                    T=T)[1]
-                    for i in range(datasize*2)]
-                )
-
-    n = len(fanos[0])
-    clip_fac = 0.1 # fraction of array to remove from start and end
-    fanos = np.array(fanos[:, int(np.floor(n*clip_fac)) : int(np.ceil(n*(1-clip_fac)))])
-    fanos = gaussian_filter1d(fanos, sigma=1, axis=1)
-    f_max = np.max(fanos, axis=1)
-    classifier = (f_max > threshold).astype(int)
-
-    return classifier
-
 def accuracy(predictions, num):
     ground_truth = np.array([0]*num + [1]*num)
     correct = predictions == ground_truth
