@@ -1,7 +1,8 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
-from scipy.ndimage import gaussian_filter
 from scipy.signal import convolve
+from scipy.ndimage import gaussian_laplace
+
 
 
 def fanoFac(spikes, bin_width, smooth=None, T=1000):
@@ -98,6 +99,61 @@ def maxFanoDeriv(dataset, datasize, T=1000, bw=20, threshold=0.002):
     classifier = (g_max > threshold).astype(int)
 
     return   g_max, classifier 
+
+
+# output values don't line up with `task1_runlocal.ipynb`
+def maxLapKern(dataset, datasize, T=1000, bw=20, threshold=0.002):
+
+    fanos = np.array([fanoFac(dataset[i],
+                    bin_width=bw,
+                    smooth=100,
+                    T=T)[1]
+                    for i in range(datasize*2)]
+    )
+
+
+    fanos_smoothed = np.array([gaussian_filter1d(fanos[i], sigma=3) for i in range(datasize*2)])
+    clip_frac = 0.10
+    n = len(fanos[0])
+    fanos = np.array(fanos[:, int(np.floor(n*clip_frac)) : int(np.ceil(n*(1-clip_frac)))])
+    laplacian1d = np.array([-1, 16, -30, 16, -1]) / 12
+
+    responses = np.array([convolve(row, laplacian1d, mode='same')
+                          for row in fanos_smoothed
+    ])
+
+
+    n = len(responses[0])
+    responses = responses[:, int(np.floor(n*clip_frac)) : int(np.ceil(n*(1-clip_frac)))]
+
+    l_max = np.max(np.abs(responses), axis=1)
+
+    classifier = (l_max > threshold).astype(int)
+
+    return l_max, classifier
+
+def rangeLoG(dataset, datasize, T=1000, bw=20, threshold=0.001):
+    
+
+    fanos = np.array([fanoFac(dataset[i],
+                    bin_width=bw,
+                    smooth=100,
+                    T=T)[1]
+                    for i in range(datasize*2)]
+    )
+
+    n = len(fanos[0])
+    clip_frac = 0.1
+    fanos = np.array(fanos[:, int(np.floor(n*clip_frac)) : int(np.ceil(n*(1-clip_frac)))])
+    LoG_responses = [gaussian_laplace(fanos[i, :], sigma=8) for i in range(datasize*2)]
+
+    lg_max = np.max(LoG_responses, axis=1)
+    lg_min = np.min(LoG_responses, axis=1)
+    rg = lg_max - lg_min
+
+    classifier = (rg > threshold).astype(int)
+
+    return rg, classifier
 
 def accuracy(predictions, num):
     ground_truth = np.array([0]*num + [1]*num)
