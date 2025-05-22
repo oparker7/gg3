@@ -1,7 +1,7 @@
 # Credit: Functions here are essentially copies of those in the
 # SSM package by Scott Linderman et al. https://github.com/lindermanlab/ssm
 
-import numba
+import numba        # can't seem to resolve an import issue with this nmot sure why
 import numpy as np
 import numpy.random as npr
 from scipy.special import logsumexp as logsumexp_scipy
