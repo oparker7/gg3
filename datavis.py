@@ -22,7 +22,6 @@ def rasterPlot(spikes, title='Raster Plot'):
     plt.tight_layout()
     plt.show()
 
-# ---------- helpers ---------- #
 def _find_bound_times_ramp(xs):
     T     = xs.shape[1]
     taus  = np.argmax(np.hstack((xs, np.ones((xs.shape[0], 1)))) >= 1., axis=1)
@@ -38,7 +37,6 @@ def _figure_grid(n_rows, n_cols, figsize=(12, 12)):
         ax.set_xlabel("time (ms)")
         ax.set_ylabel("trial")
     return fig, axes
-# ----------------------------- #
 
 # Legend handles
 _spike_bound_handles = [
@@ -46,11 +44,8 @@ _spike_bound_handles = [
     plt.Line2D([], [], marker="|", linestyle="", color="red", label="bound reached")
 ]
 
-# ------------------------------------------------------------------ #
-#                          RAMP  PLOTS                               #
-# ------------------------------------------------------------------ #
-def rampRasterPlot(beta_list=[0.3, 1, 3], sigma_list=[0.05, .15, .3],
-                     n_trials=500, T=1000, N_show=10):
+def rampRasterPlot(beta_list, sigma_list,
+                     n_trials=5000, T=1000, N_show=10):
     fig, ax = _figure_grid(len(beta_list), len(sigma_list))
     for i, b in enumerate(beta_list):
         for j, s in enumerate(sigma_list):
@@ -62,10 +57,10 @@ def rampRasterPlot(beta_list=[0.3, 1, 3], sigma_list=[0.05, .15, .3],
             bound_events = [[t] if (k < N_show and taus[k] >= 0) else []
                             for k, t in enumerate(taus)]
 
-            ax[i, j].eventplot(events, colors="lightblue", lineoffsets=np.arange(N_show),
+            ax[i, j].eventplot(events, colors="lightcoral", lineoffsets=np.arange(N_show),
                                linelengths=.6)
-            ax[i, j].eventplot(bound_events[:N_show], colors="red",
-                               lineoffsets=np.arange(N_show), linelengths=.8)
+            ax[i, j].eventplot(bound_events[:N_show], colors="black",
+                               lineoffsets=np.arange(N_show), linelengths=.8, linewidths=2)
 
             ax[i, j].set_title(rf"$\beta$={b},  $\sigma$={s}", fontsize=9)
 
@@ -73,9 +68,8 @@ def rampRasterPlot(beta_list=[0.3, 1, 3], sigma_list=[0.05, .15, .3],
     plt.tight_layout()
     return fig
 
-
-def rampWalkPlot(beta_list=[0.3, 1, 3], sigma_list=[0.05, .15, .3],
-                   n_trials=500, T=1000):
+def rampWalkPlot(beta_list, sigma_list,
+                   n_trials=5000, T=1000):
     fig, ax = _figure_grid(len(beta_list), len(sigma_list))
     for i, b in enumerate(beta_list):
         for j, s in enumerate(sigma_list):
@@ -92,11 +86,8 @@ def rampWalkPlot(beta_list=[0.3, 1, 3], sigma_list=[0.05, .15, .3],
     plt.tight_layout()
     return fig
 
-# ------------------------------------------------------------------ #
-#                          STEP  PLOTS                               #
-# ------------------------------------------------------------------ #
-def stepRasterPlot(m_list=[200, 500, 800], r_list=[3, 30, 300],
-                     n_trials=500, T=1000, N_show=10):
+def stepRasterPlot(m_list, r_list,
+                     n_trials=5000, T=1000, N_show=10):
     fig, ax = _figure_grid(len(m_list), len(r_list))
     for i, m in enumerate(m_list):
         for j, r in enumerate(r_list):
@@ -107,7 +98,7 @@ def stepRasterPlot(m_list=[200, 500, 800], r_list=[3, 30, 300],
             jump_events  = [[jumps[k]] if k < N_show else [] for k in range(n_trials)]
 
             ax[i, j].eventplot(events, colors="lightblue", lineoffsets=np.arange(N_show), linelengths=.6)
-            ax[i, j].eventplot(jump_events[:N_show], colors="red", lineoffsets=np.arange(N_show), linelengths=.8)
+            ax[i, j].eventplot(jump_events[:N_show], colors="black", lineoffsets=np.arange(N_show), linelengths=.8, linewidths=2)
 
             ax[i, j].set_title(rf"$m$={m},  $r$={r}", fontsize=9)
 
@@ -116,8 +107,8 @@ def stepRasterPlot(m_list=[200, 500, 800], r_list=[3, 30, 300],
     return fig
 
 
-def stepWalkPlot(m_list=[200, 500, 800], r_list=[3, 30, 300],
-                   n_trials=500, T=1000):
+def stepWalkPlot(m_list, r_list,
+                   n_trials=5000, T=1000):
     fig, ax = _figure_grid(len(m_list), len(r_list))
     for i, m in enumerate(m_list):
         for j, r in enumerate(r_list):
@@ -134,9 +125,6 @@ def stepWalkPlot(m_list=[200, 500, 800], r_list=[3, 30, 300],
     plt.tight_layout()
     return fig
 
-# ------------------------------------------------------------
-# --------------  Common utilities / styling  ----------------
-# ------------------------------------------------------------
 def _pretty_grid(nr, nc, figsize=(12, 12), suptitle=None, ypad=.93):
     fig, ax = plt.subplots(nr, nc, figsize=figsize,
                            sharex=True, sharey=True, squeeze=False)
@@ -158,7 +146,6 @@ def _smooth(arr, win):
     
     kernel = np.ones(int(win)) / win
     return convolve(arr, kernel, mode='same')
-
 
 # convolution with 1d laplacian kernel
 def laplacian(arr, plot=True):
