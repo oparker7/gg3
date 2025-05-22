@@ -4,3 +4,4 @@ ipykernel
 jupyter
 scipy
 numba
+scikit-learn
