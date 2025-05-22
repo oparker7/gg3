@@ -9,7 +9,7 @@ GG3 -- Neural Data Analysis (Undergraduate IIA project, Department of Engineerin
 
 To create and enter venv: Open a PowerShell terminal in VS code and run `.\setup_venv.ps1`
 
-(Or in bash, run 'bash setup.sh')
+(Or in bash, run 'source setup.sh')
 
 Select this Kernel in any jupyter notebooks to ensure dependencies.
 
