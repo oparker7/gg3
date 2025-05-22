@@ -162,3 +162,17 @@ def accuracy(predictions, num):
     acc = num_correct / len(predictions)
 
     return acc, correct
+
+def fanoClassify(dataset, datasize, T=1000, bw=20):
+    mff = genFanoClassifyMax(dataset, datasize)
+    _, mfd = maxFanoDeriv(dataset, datasize)
+    _, lgc = rangeLoG(dataset, datasize)
+
+    cls = np.vstack([mff, mfd, lgc])
+    prds = np.where(cls == 0, -1, 1)
+    sum_prds = np.sum(prds, axis=0)
+    classifier = (sum_prds > 0).astype(int)
+    performance, _ = accuracy(classifier, datasize)
+    disagreements = np.sum((mff != mfd) | (mff != lgc) | (mfd != lgc))
+
+    return classifier, performance, disagreements 
