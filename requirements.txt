@@ -3,3 +3,4 @@ matplotlib
 ipykernel
 jupyter
 scipy
+numba
