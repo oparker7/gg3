@@ -6,4 +6,6 @@ scipy
 numba
 scikit-learn
 numba
+seaborn
 nbstripout
+
