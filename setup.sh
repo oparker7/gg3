@@ -15,3 +15,6 @@ pip install -r requirements.txt
 
 # Add Jupyter kernel
 python -m ipykernel install --user --name=.gg3_venv --display-name "Python (.gg3_venv)"
+
+
+nbstripout --install
