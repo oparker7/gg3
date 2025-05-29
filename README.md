@@ -15,12 +15,12 @@ GG3 -- Neural Data Analysis (Undergraduate IIA project, Department of Engineerin
  - Find threshold value of sigma so the trajectory doesn't get stuck
 
 2.2.
-- Time homogeneous markov chain for the step with two states
+- (Done) Time homogeneous markov chain for the step with two states, acheived by using `exact=False`
 - Simulate this markov chain and plot x_t
 - Histogram the jump times of this model
 - Compare to the histograms in week 1
 - Work out why this model is wrong
-- (Done) Make new model with r+1 states
+- (Done) Make new model with r+1 states, use `exact=True`
 - (Done) simulate several trials of new markov chain
 - Plot histograms of jump times (should add this as a class method)
 - Compare histograms to week 1
