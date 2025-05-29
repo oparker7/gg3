@@ -37,7 +37,7 @@ class RampModelHMM:
         self.x_values = self.states / (K - 1)
         
         # Construct transition matrix
-        self.T = self._construct_transition_matrix()
+        self.T = self._construct_transition_matrix()  # T is the class attribute for the transition matrix
         
     def _construct_transition_matrix(self):
         """Construct the transition matrix T where T[s,s'] = P(s_{t+1} = s' | s_t = s)"""
@@ -55,7 +55,7 @@ class RampModelHMM:
             T[s, :] = self._calculate_transition_probs(x_current)
             
         return T
-    
+
     def _calculate_transition_probs(self, x_current):
         probs   = np.zeros(self.K)
         dx      = 1.0 / (self.K - 1)
@@ -99,7 +99,7 @@ class RampModelHMM:
         
         return norm.cdf((b - mean) / std) - norm.cdf((a - mean) / std)
     
-    def simulate(self, n_steps, initial_state=0):
+    def simulate(self, n_steps=500, initial_state=0):
         """
         Simulate the HMM for n_steps.
         
@@ -109,7 +109,7 @@ class RampModelHMM:
         
         Returns:
         - states: Array of state indices
-        - x_values: Array of corresponding x values
+        - x_values: Array of corresponding x_t values
         """
         states = np.zeros(n_steps + 1, dtype=int)
         states[0] = initial_state
@@ -119,6 +119,7 @@ class RampModelHMM:
             probs = self.T[states[t], :]
             states[t + 1] = np.random.choice(self.K, p=probs)
         
+
         x_values = self.x_values[states]
         return states, x_values
     

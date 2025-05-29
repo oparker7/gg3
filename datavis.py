@@ -62,7 +62,7 @@ def rampRasterPlot(beta_list, sigma_list,
             ax[i, j].eventplot(bound_events[:N_show], colors="black",
                                lineoffsets=np.arange(N_show), linelengths=.8, linewidths=2)
 
-            ax[i, j].set_title(rf"$\beta$={b},  $\sigma$={s}", fontsize=9)
+            ax[i, j].set_title(rf"$\beta$={b},  $\sigma$={s}", fontsize=20)
 
     ax[0, 0].legend(handles=_spike_bound_handles, loc="upper right", frameon=False)
     plt.tight_layout()
@@ -70,17 +70,22 @@ def rampRasterPlot(beta_list, sigma_list,
 
 def rampWalkPlot(beta_list, sigma_list,
                    n_trials=5000, T=1000):
+
+    n_to_plot = min(n_trials, 5)
+
     fig, ax = _figure_grid(len(beta_list), len(sigma_list))
     for i, b in enumerate(beta_list):
         for j, s in enumerate(sigma_list):
             ramp          = models.RampModel(beta=b, sigma=s)
             _, xs, _      = ramp.simulate(Ntrials=n_trials, T=T)
 
-            for k in range(5):
+        
+            for k in range(n_to_plot):
                 ax[i, j].plot(xs[k], alpha=.6)
             ax[i, j].plot(xs.mean(0), color="k", lw=2, label="mean $x_t$")
             ax[i, j].set_ylim(0, 1.1)
-            ax[i, j].set_title(rf"$\beta$={b},  $\sigma$={s}", fontsize=9)
+            ax[i, j].set_xlim(0, T)
+            ax[i, j].set_title(rf"$\beta$={b},  $\sigma$={s}", fontsize=20)
 
     ax[0, 0].legend(frameon=False)
     plt.tight_layout()
@@ -100,7 +105,7 @@ def stepRasterPlot(m_list, r_list,
             ax[i, j].eventplot(events, colors="lightblue", lineoffsets=np.arange(N_show), linelengths=.6)
             ax[i, j].eventplot(jump_events[:N_show], colors="black", lineoffsets=np.arange(N_show), linelengths=.8, linewidths=2)
 
-            ax[i, j].set_title(rf"$m$={m},  $r$={r}", fontsize=9)
+            ax[i, j].set_title(rf"$m$={m},  $r$={r}", fontsize=20)
 
     ax[0, 0].legend(handles=_spike_bound_handles, loc="upper right", frameon=False)
     plt.tight_layout()
