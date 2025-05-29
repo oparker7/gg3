@@ -57,74 +57,40 @@ class RampModelHMM:
         return T
     
     def _calculate_transition_probs(self, x_current):
-        """Calculate transition probabilities from current state x_current"""
-        probs = np.zeros(self.K)
-        
-        # Gaussian parameters for the proposed transition
-        mean = x_current + self.beta * self.dt
-        std = self.sigma * np.sqrt(self.dt)
-        
-        # Calculate probability for each target state
-        for s_prime in range(self.K):
-            x_target = self.x_values[s_prime]
-            
-            if s_prime == 0:
-                # State 0: includes all probability mass that would go below 0
-                # Plus the probability of actually landing at x = 0
-                
-                # Probability of landing exactly at 0 (integrate over small interval around 0)
-                dx = 1.0 / (self.K - 1)  # grid spacing
-                prob_at_zero = self._integrate_gaussian(mean, std, -dx/2, dx/2)
-                
-                # Probability of proposed transition being negative (rejected, stays at current state)
-                if x_current == 0:  # Currently at zero
-                    prob_negative = norm.cdf(-mean / std) if std > 0 else (1.0 if mean < 0 else 0.0)
-                    probs[0] = prob_at_zero + prob_negative
-                else:  # Currently above zero
-                    probs[0] = prob_at_zero
-                    
-            elif s_prime == self.K - 1:
-                # Last state: includes all probability mass that would go above 1
-                x_target = 1.0
-                dx = 1.0 / (self.K - 1)
-                
-                # Probability of landing in [1-dx/2, ∞)
-                probs[s_prime] = 1 - norm.cdf((1 - dx/2 - mean) / std) if std > 0 else (1.0 if mean > 1 - dx/2 else 0.0)
-                
-            else:
-                # Interior states: integrate Gaussian over the interval
-                dx = 1.0 / (self.K - 1)
-                x_left = x_target - dx/2
-                x_right = x_target + dx/2
-                
-                probs[s_prime] = self._integrate_gaussian(mean, std, x_left, x_right)
-        
-        # Handle the case where we're currently at state 0 and need to add rejected transitions
-        if x_current == 0:
-            # Add probability mass from rejected negative transitions
-            prob_negative = norm.cdf(-mean / std) if std > 0 else (1.0 if mean < 0 else 0.0)
-            # This gets added to staying at state 0
-            current_state_idx = 0
-            probs[current_state_idx] += prob_negative
-        
-        # Handle rejected negative transitions for positive states
-        elif x_current > 0:
-            # Calculate probability of proposed transition going negative
-            prob_negative = norm.cdf((-x_current - mean) / std) if std > 0 else (1.0 if -x_current > mean else 0.0)
-            # Add this to staying at current state
-            current_state_idx = int(np.round(x_current * (self.K - 1)))
-            probs[current_state_idx] += prob_negative
-        
-        # Normalize to ensure probabilities sum to 1
-        prob_sum = np.sum(probs)
-        if prob_sum > 0:
-            probs = probs / prob_sum
+        probs   = np.zeros(self.K)
+        dx      = 1.0 / (self.K - 1)
+        mean    = x_current + self.beta * self.dt
+        std     = self.sigma * np.sqrt(self.dt)
+
+        # 1. mass that falls below 0  → bin 0   (works for any x_current)
+        if std > 0:
+            p_below0 = norm.cdf((0 - mean) / std)
+        else:               # deterministic step
+            p_below0 = 1.0 if mean < 0 else 0.0
+        probs[0] += p_below0
+
+        # 2. mass that falls above 1 → last bin
+        if std > 0:
+            p_above1 = 1 - norm.cdf((1 - mean) / std)
         else:
-            # Fallback: stay at current state
-            current_state_idx = int(np.round(x_current * (self.K - 1)))
-            probs[current_state_idx] = 1.0
-            
+            p_above1 = 1.0 if mean > 1 else 0.0
+        probs[-1] += p_above1
+
+        # 3. interior bins (including 0 and K-1 again; harmless because non-overlapping)
+        for s_prime in range(self.K):
+            x_centre = self.x_values[s_prime]
+            left  = x_centre - dx/2
+            right = x_centre + dx/2
+            # clip to [0,1] so we don’t re-add tails we already accounted for
+            left  = max(left, 0.0)
+            right = min(right, 1.0)
+            if right > left:               # non-empty interval
+                probs[s_prime] += self._integrate_gaussian(mean, std, left, right)
+
+        # 4. renormalise
+        probs /= probs.sum()
         return probs
+
     
     def _integrate_gaussian(self, mean, std, a, b):
         """Integrate Gaussian PDF from a to b"""
