@@ -26,7 +26,7 @@ GG3 -- Neural Data Analysis (Undergraduate IIA project, Department of Engineerin
 - Compare histograms to week 1
 
 2.3.
-- add class method to each HMM class to generate spike train, this could be done by creating a new class `HMM` with argument `step` or `ramp` and then inheriting the appropriate class from `HMM_models.py`
+- add class method to each HMM class to generate spike train, this could be done by creating a new class `HMM` with argument `step` or `ramp` and then inheriting the appropriate class from `HMM_models.py` (Done)
 - Use `inference.py` to infer the posterior expectation of x_t from a number of trials
 - Look at `GG3_project.ipynb` for which plots to generate
 - Find where the parameter range where the inference is best
