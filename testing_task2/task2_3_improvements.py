@@ -252,8 +252,8 @@ def compute_confidence_intervals(inferred_states, n_bootstrap=1000,
     - n_bootstrap: number of bootstrap samples
     - confidence_level: confidence level for intervals
     """
-    n_states = len(inferred_states)
-    bootstrap_samples = np.zeros((n_bootstrap, n_states))
+    n_states, time_steps = inferred_states.shape
+    bootstrap_samples = np.zeros((n_bootstrap, n_states, time_steps))
     
     for i in range(n_bootstrap):
         # Resample with replacement
