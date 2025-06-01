@@ -384,3 +384,83 @@ class StepModelHMM:
 
         return states, tau_true, spikes
 
+
+class DiscreteRampHMM:
+    def __init__(self, beta, sigma, dt, K, x0):
+        self.beta = beta
+        self.sigma = sigma
+        self.dt = dt
+        self.K = K
+        self.x0 = x0
+        self.grid = np.linspace(0, 1, K)
+        self.T = self._build_transition_matrix()
+        self.pi = self._build_initial_distribution()
+
+    def _truncated_normal_pdf(self, x, mu, sigma, lower, upper):
+        Z = norm.cdf(upper, loc=mu, scale=sigma) - norm.cdf(lower, loc=mu, scale=sigma)
+        return norm.pdf(x, loc=mu, scale=sigma) / Z if Z > 0 else 0.0
+
+    def _gaussian_cdf(self, x, mu, sigma):
+        return norm.cdf(x, loc=mu, scale=sigma)
+
+    def _build_transition_matrix(self):
+        T = np.zeros((self.K, self.K))
+        for s in range(self.K):
+            x = self.grid[s]
+            mu = x + self.beta * self.dt
+            std = self.sigma * np.sqrt(self.dt)
+
+            if x >= 1.0:
+                T[s, -1] = 1.0
+                continue
+
+            for s_prime in range(self.K):
+                x_next = self.grid[s_prime]
+                if x > 0:
+                    T[s, s_prime] = self._truncated_normal_pdf(x_next, mu, std, 0, 1)
+                else:
+                    if x_next == 0:
+                        T[s, s_prime] = self._gaussian_cdf(0, mu, std)
+                    else:
+                        T[s, s_prime] = self._truncated_normal_pdf(x_next, mu, std, 0, 1)
+
+            row_sum = T[s].sum()
+            if row_sum > 0:
+                T[s] /= row_sum
+            else:
+                T[s, s] = 1.0  # Fallback to identity if all probabilities are 0
+
+        return T
+
+    def _build_initial_distribution(self):
+        mu = self.x0
+        std = self.sigma * np.sqrt(self.dt)
+        pi = np.array([self._truncated_normal_pdf(x, mu, std, 0, 1) for x in self.grid])
+        return pi / pi.sum()
+
+    def plot_transition_matrix(self):
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(self.T, cmap="viridis", cbar=True, square=True)
+        plt.title("Transition Matrix Heatmap")
+        plt.xlabel("Next state $s'$")
+        plt.ylabel("Current state $s$")
+        plt.tight_layout()
+        plt.show()
+
+    def plot_initial_distribution(self):
+        plt.figure(figsize=(8, 4))
+        plt.plot(self.grid, self.pi, drawstyle='steps-mid')
+        plt.title("Initial State Distribution $\pi$")
+        plt.xlabel("$x$")
+        plt.ylabel("Probability")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+
+    def simulate_trajectory(self, T_steps):
+        s_t = np.random.choice(self.K, p=self.pi)
+        trajectory = [self.grid[s_t]]
+        for _ in range(T_steps - 1):
+            s_t = np.random.choice(self.K, p=self.T[s_t])
+            trajectory.append(self.grid[s_t])
+        return np.array(trajectory)
