@@ -146,11 +146,12 @@ def analyze_parameter_regime(model_type='ramp', param_name='beta',
                 K = 50
                 beta = 0.1 if param_name != 'beta' else param
                 sigma = 0.2 if param_name != 'sigma' else param
-                R_h = 30.0
+                R_h = 30.0 if param_name != 'sigma' else param
+                pi0 = None if param_name != 'pi0' else param
                 
                 # Run inference
                 _, _, mae = perform_ramp_inference(
-                    K=K, beta=beta, sigma=sigma, dt=dt, T=T, R_h=R_h, N=1
+                    K=K, beta=beta, sigma=sigma, dt=dt, T=T, R_h=R_h, N=1, pi0=pi0
                 )
                 trial_errors.append(mae[0])  # Get MAE for single trial
                 
@@ -158,8 +159,8 @@ def analyze_parameter_regime(model_type='ramp', param_name='beta',
                 # Default step parameters
                 m = 50 if param_name != 'm' else param
                 r = 10 if param_name != 'r' else param
-                R_low = 5.0
-                R_high = 50.0
+                R_low = 5.0 if param_name != 'R_low' else param
+                R_high = 50.0 if param_name != 'R_high' else param
                 exact = True
                 
                 # Run inference
@@ -178,6 +179,22 @@ def plot_parameter_analysis(param_range, errors, param_name, model_type):
     plt.figure(figsize=(10,6))
     plt.plot(param_range, errors, 'o-', label='Mean Error')
     plt.fill_between(param_range, 
+                    np.array(errors) - np.std(errors),
+                    np.array(errors) + np.std(errors),
+                    alpha=0.2)
+    plt.xlabel(param_name)
+    plt.ylabel('Mean Absolute Error')
+    plt.title(f'Inference Accuracy vs {param_name} ({model_type.title()} Model)')
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
+def pi0_plot_parameter_analysis(param_range, errors, param_name, model_type):
+    """Plot parameter analysis results with confidence intervals for p0"""
+    state_indices = [np.argmax(pi0) for pi0 in param_range]
+    plt.figure(figsize=(10,6))
+    plt.plot(state_indices, errors, 'o-', label='Mean Error')
+    plt.fill_between(state_indices, 
                     np.array(errors) - np.std(errors),
                     np.array(errors) + np.std(errors),
                     alpha=0.2)
