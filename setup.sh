@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Exit if any command fails
-set -e
+#set -e
 
 # Create virtual environment
 python -m venv .gg3_venv

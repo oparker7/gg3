@@ -203,6 +203,31 @@ class RampModelHMM:
             plt.tight_layout()
             plt.show()
 
+    def simulate_spikes(self, n_steps=500, initial_state=0, R_h=30.0, dt=None):
+        """
+        Simulate one trial of length n_steps for the ramp HMM, and return:
+          - states:  array of length n_steps+1, each in {0,…,K-1}
+          - x_vals:  array of length n_steps+1, x_vals[t] = states[t]/(K-1)
+          - spikes:  array of length n_steps+1, where
+                       rate[t] = R_h * x_vals[t],      or + baseline if desired
+                       spikes[t] - Pois(rate[t]·dt)
+        """
+        if dt is None:
+            dt = self.dt
+        # 1) Draw the discrete chain exactly as simulate() does
+        states = np.zeros(n_steps+1, dtype=int)
+        states[0] = initial_state
+        for t in range(n_steps):
+            probs = self.T[states[t], :]
+            states[t+1] = np.random.choice(self.K, p=probs)
+        # 2) Convert to continuous x_t
+        x_vals = states / float(self.K - 1)
+        # 3) Turn into rate[t] = R_h * x_vals[t], then sample Poisson
+        rates = R_h * x_vals
+        spikes = np.random.poisson(lam = rates * dt)
+        return states, x_vals, spikes
+
+
 
 
 class StepModelHMM:
@@ -296,3 +321,43 @@ class StepModelHMM:
         if show_fig:
             plt.tight_layout()
             plt.show()
+
+    def simulate_spikes(self, n_steps=500, R_low=5.0, R_high=50.0, dt=None):
+        """
+        Simulate one trial of the step HMM (2 state or r+1 state), and return:
+          - states:   array of length n_steps+1, each in {0,…,K-1}
+          - tau_true: integer index of first step into the 'high' state
+          - spikes:   array of length n_steps+1, where
+                        if states[t] < (high-state index) then rate = R_low
+                        else then rate = R_high
+                        spikes[t] - Pois(rate·dt)
+        """
+        if dt is None:
+            dt = self.dt
+
+        # Draw the discrete chain
+        states   = np.zeros(n_steps+1, dtype=int)
+        states[0] = 0
+        tau_true = None
+        for t in range(n_steps):
+            states[t+1] = np.random.choice(self.K, p=self.T[states[t], :])
+            # Detect first time we hit the “absorbing high”:
+            if tau_true is None:
+                if (not self.exact and states[t+1] == 1) \
+                   or (self.exact and states[t+1] == self.r):
+                    tau_true = t+1
+
+        if tau_true is None:
+            tau_true = n_steps  # if no jump, set it to final bin
+
+        # 2) Build rate[t] and sample spikes[t]
+        spikes = np.zeros(n_steps+1, dtype=int)
+        for t in range(n_steps+1):
+            if (not self.exact and states[t] == 1) or (self.exact and states[t] == self.r):
+                rate_t = R_high
+            else:
+                rate_t = R_low
+            spikes[t] = np.random.poisson(lam = rate_t * dt)
+
+        return states, tau_true, spikes
+
