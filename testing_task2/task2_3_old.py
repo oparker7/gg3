@@ -1,4 +1,4 @@
-"""
+"""Add commentMore actions
 Code snippets for improving Task 2.3 HMM inference analysis.
 Each section contains code and explanations for specific improvements.
 """
@@ -37,7 +37,7 @@ def evaluate_inference(true_states, inferred_states, smoothing=True):
     if len(np.unique(true_states)) == 2:  # Binary states
         acc = np.mean((inferred_states > 0.5) == (true_states > 0.5))
     else:
-        acc = (true_states - inferred_states)/true_states
+        acc = None
         
     return {
         'mae': mae,
@@ -194,9 +194,6 @@ def compare_smoothing_filtering(model_type='ramp', n_trials=10):
         if metric == 'mae':
             smooth_vals = mae_smooth
             filter_vals = mae_filter
-        if metric == 'accuracy':
-            smooth_vals = (true_states - inferred_smooth)/true_states
-            filter_vals = (true_states - inferred_filter)/true_states
         else:
             # Compute other metrics
             smooth_vals = [evaluate_inference(true_states[j], inferred_smooth[j], smoothing=True)[metric] 
@@ -271,54 +268,6 @@ def compute_confidence_intervals(inferred_states, n_bootstrap=1000,
     return lower, upper
 
 # ============================================================================
-# Improved version of the confidence interval computation
-# ============================================================================
-
-def compute_simulation_confidence_intervals(
-    simulate_func,
-    n_simulations=100,
-    confidence_level=0.95,
-    extract_inferred=True,
-    **kwargs
-):
-    """
-    Runs a simulation function multiple times and computes the confidence interval
-    of the average inferred signal at each time step.
-
-    Parameters:
-    - simulate_func: function to simulate, should return inferred signal as 2nd return value
-    - n_simulations: number of times to run the simulation
-    - confidence_level: confidence level for interval (e.g., 0.95)
-    - extract_inferred: whether to use second return value of the function
-    - **kwargs: keyword arguments to pass to simulate_func
-
-    Returns:
-    - mean_signal: mean inferred signal over all simulations
-    - mean_over_trials: mean inferred signal over all trials
-    - lower: lower bound of confidence interval
-    - upper: upper bound of confidence interval
-    """
-    inferred_list = []
-
-    for _ in range(n_simulations):
-        result = simulate_func(**kwargs)
-        inferred = result[1] if extract_inferred else result
-        inferred_list.append(inferred)
-
-    inferred_array = np.array(inferred_list)  # shape: (n_simulations, n_trials, T)
-
-    # Compute mean over simulations
-    mean_signal = inferred_array.mean(axis=0)  # shape: (n_trials, T)
-
-    # Compute confidence intervals over simulations of the *mean* signal
-    mean_over_trials = inferred_array.mean(axis=1)  # shape: (n_simulations, T)
-    alpha = (1 - confidence_level) / 2
-    lower = np.percentile(mean_over_trials, alpha * 100, axis=0)
-    upper = np.percentile(mean_over_trials, (1 - alpha) * 100, axis=0)
-
-    return mean_signal, mean_over_trials, lower, upper
-
-# ============================================================================
 # 5. OBSERVATION DURATION ANALYSIS
 # ============================================================================
 
@@ -334,40 +283,23 @@ def analyze_observation_duration(model_type='ramp', durations=None, n_trials=10)
     if durations is None:
         durations = [100, 200, 500, 1000, 2000]  # Default durations
         
-    # Common parameters
-    dt = 0.01  # time step
-    
     errors = []
-    for T in durations:
+    for duration in durations:
         trial_errors = []
         for _ in range(n_trials):
+            # Simulate data with specified duration
             if model_type == 'ramp':
-                # Ramp model parameters
-                K = 50
-                beta = 0.1
-                sigma = 0.2
-                R_h = 30.0
+                model = RampModelHMM()
+                true_states, spikes = model.simulate(duration=duration)
+                inferred = perform_ramp_inference(spikes, model)
+            else:
+                model = StepModelHMM()
+                true_states, spikes = model.simulate(duration=duration)
+                inferred = perform_step_inference(spikes, model)
                 
-                # Run inference
-                _, _, mae = perform_ramp_inference(
-                    K=K, beta=beta, sigma=sigma, dt=dt, T=T, R_h=R_h, N=1
-                )
-                trial_errors.append(mae[0])  # Get MAE for single trial
-                
-            else:  # step model
-                # Step model parameters
-                m = 50
-                r = 10
-                R_low = 5.0
-                R_high = 50.0
-                exact = True
-                
-                # Run inference
-                _, _, mae = perform_step_inference(
-                    m=m, r=r, dt=dt, T=T, R_low=R_low, R_high=R_high,
-                    N=1, exact=exact
-                )
-                trial_errors.append(mae[0])  # Get MAE for single trial
+            # Evaluate
+            error = evaluate_inference(true_states, inferred['smoothed'])
+            trial_errors.append(error['mae'])
             
         errors.append(np.mean(trial_errors))
         
@@ -388,7 +320,7 @@ def plot_duration_analysis(durations, errors, model_type):
 # Example Usage
 # ============================================================================
 
-'''if __name__ == "__main__":
+if __name__ == "__main__":
     # Example 1: Compare smoothing vs filtering
     compare_smoothing_filtering(model_type='ramp', n_trials=10)
     
@@ -407,36 +339,14 @@ def plot_duration_analysis(durations, errors, model_type):
     )
     plot_duration_analysis(durations, errors, 'Ramp')
     
-
-
-    # Define ramp‐HMM parameters
-    K       = 50          # number of discrete levels
-    beta    = 0.1         # drift parameter
-    sigma   = 0.2         # diffusion parameter
-    dt      = 0.01        # bin width (seconds)
-    T       = 500         # bins per trial
-    R_h     = 30.0        # max Poisson rate (Hz)
-    N       = 20          # number of trials
-    use_filter = False    # False = smoothing; True = filtering
     # Example 4: Plot with confidence intervals
     model = RampModelHMM()
     true_states, spikes = model.simulate()
-    true_ramps, inferred_ramps, MAEs = perform_ramp_inference(
-        K       = K,
-        beta    = beta,
-        sigma   = sigma,
-        dt      = dt,
-        T       = T,
-        R_h     = R_h,
-        N       = N,
-        pi0     = None,       # default: start in state 0
-        use_filter = use_filter
-    )
-    lower, upper = compute_confidence_intervals(inferred_ramps[0])
+    inferred = perform_ramp_inference(spikes, model)
+    lower, upper = compute_confidence_intervals(inferred['smoothed'])
     plot_inference_with_confidence(
         true_states, 
-        inferred_ramps[0],
+        inferred['smoothed'],
         (lower, upper),
         'Ramp Model Inference with 95% Confidence Intervals'
     ) 
-'''
