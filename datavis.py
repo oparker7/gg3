@@ -219,6 +219,15 @@ def psth_grid(model_cls, p1_list, p2_list,
 def fanoFactor(model, n_trials=5000, T=1000,
                 bin_width=50, smooth_ms=None,
                 ax=None, label=None, plot=False):
+
+    if isinstance(model, models.RampModel):
+        label = '\u03B2: ' + str(round(model.beta, 2)) + ', \u03C3: ' + str(round(model.sigma, 2))
+        title = 'Ramp Model Fano Factor Plot'
+
+    if isinstance(model, models.StepModel):
+        label = 'm: '+str(round(model.m))+', r: '+str(round(model.r))
+        title = 'Step Model Fano Factor Plot'
+    
     edges, n_bins = _bin_edges_and_count(bin_width, T)
     spikes, *_    = model.simulate(Ntrials=n_trials, T=T)
 
@@ -233,9 +242,11 @@ def fanoFactor(model, n_trials=5000, T=1000,
     if plot:
         if ax is None: ax = plt.gca()
         ax.plot(times, fano, label=label)
-        ax.set_xlabel("time (ms)"); ax.set_ylabel("Fano factor")
+        ax.set_xlabel("time (ms)", fontsize=18); ax.set_ylabel("Fano factor", fontsize=18)
         ax.set_ylim(bottom=0, top=1.8)
         ax.grid(True, ls='--', lw=.4, color='#e5e5e5')
+        ax.set_title(title, fontsize=22)
+        ax.legend(ncol=2, fontsize=12)
 
     return times, fano
 
