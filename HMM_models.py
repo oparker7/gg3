@@ -4,6 +4,14 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 from scipy.integrate import quad
 
+def _figure_grid(n_rows, n_cols, figsize=(12, 12)):
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize,
+                             sharex=True, sharey=True, squeeze=False)
+    for ax in axes.ravel():
+        ax.set_xlim(0, 1000)
+        ax.set_xlabel("time (ms)")
+        ax.set_ylabel("trial")
+    return fig, axes
 
 class RampModelHMM:
     """
@@ -228,7 +236,22 @@ class RampModelHMM:
         return states, x_vals, spikes
 
 
+    def walk_plot(self, n_trials=5000, n_steps=1000, n_to_plot=5):
 
+        trajectories = np.empty((n_trials, n_steps+1))
+        
+        for i in range(n_trials):
+            _, trajectories[i, :]= self.simulate(n_steps=n_steps)
+
+        for k in range(n_to_plot):
+            plt.plot(trajectories[k], alpha=.6)
+            plt.plot(trajectories.mean(0), color="k", lw=2, label="mean $x_t$")
+            plt.ylim(0, 1.1)
+            plt.xlim(0, n_steps)
+            plt.title(rf"$\beta$={self.beta},  $\sigma$={self.sigma}", fontsize=20)
+
+        plt.tight_layout()
+        plt.show()
 
 class StepModelHMM:
     def __init__(self, m, r=1,  dt=1.0, exact=False):
