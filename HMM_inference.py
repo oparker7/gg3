@@ -205,7 +205,9 @@ def perform_step_inference(
     # 5) Storage for true jump times, estimated jump times, and errors
     true_taus = np.zeros(N, dtype=int)
     est_taus  = np.zeros(N, dtype=int)
+    est_taus_filtered  = np.zeros(N, dtype=int)
     MAEs      = np.zeros(N, dtype=float)
+    MAEs_filtered      = np.zeros(N, dtype=float)
 
     # 6) Loop over trials
     for i in range(N):
@@ -232,7 +234,7 @@ def perform_step_inference(
             pi0=pi0,     # shape (K,)
             Ps=Ps,       # shape (K, K)
             ll=ll_i,     # shape (T+1, K)
-            filter=use_filter
+            filter=False
         )
         # post_probs_i[t, s] = P(s_t = s | data)
 
@@ -247,7 +249,29 @@ def perform_step_inference(
         # 6f) Compute MAE = |tau_hat_i - tau_true_i|
         MAEs[i] = abs(tau_hat_i - tau_true_i)
 
-    return true_taus, est_taus, MAEs
+        # now with filtering
+
+                # 6c) Run forward-backward: smoothing or filtering
+        post_probs_i_filtered, logZ_i = inference.hmm_expected_states(
+            pi0=pi0,     # shape (K,)
+            Ps=Ps,       # shape (K, K)
+            ll=ll_i,     # shape (T+1, K)
+            filter=True
+        )
+        # post_probs_i[t, s] = P(s_t = s | data)
+
+        # 6d) Compute P_high(t) = sum_{s in high_states} post_probs_i[t, s]
+        P_high_i_filtered = post_probs_i_filtered[:, high_states].sum(axis=1)  # shape (T+1,)
+
+        # 6e) Estimate jump time: first t where P_high_i > 0.5; if none, use T
+        crossing_times_filtered = np.where(P_high_i_filtered > 0.5)[0]
+        tau_hat_i_filtered = int(crossing_times_filtered[0]) if crossing_times_filtered.size > 0 else T
+        est_taus_filtered[i] = tau_hat_i_filtered
+
+        # 6f) Compute MAE = |tau_hat_i - tau_true_i|
+        MAEs_filtered[i] = abs(tau_hat_i_filtered - tau_true_i)
+
+    return true_taus, est_taus, est_taus_filtered, MAEs, MAEs_filtered
 
 
 def plot_step_example(
