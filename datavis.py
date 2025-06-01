@@ -76,7 +76,7 @@ def rampWalkPlot(beta_list, sigma_list,
     fig, ax = _figure_grid(len(beta_list), len(sigma_list))
     for i, b in enumerate(beta_list):
         for j, s in enumerate(sigma_list):
-            ramp          = models.RampModel(beta=b, sigma=s)
+            ramp          = models.RampModel(beta=b, sigma=s, x0=0)
             _, xs, _      = ramp.simulate(Ntrials=n_trials, T=T)
 
         
@@ -88,8 +88,9 @@ def rampWalkPlot(beta_list, sigma_list,
             ax[i, j].set_title(rf"$\beta$={b},  $\sigma$={s}", fontsize=20)
 
     ax[0, 0].legend(frameon=False)
+    plt.title('Continuous Ramp Model Walk Plot', fontsize=20)
     plt.tight_layout()
-    return fig
+    plt.show()
 
 def stepRasterPlot(m_list, r_list,
                      n_trials=5000, T=1000, N_show=10):
