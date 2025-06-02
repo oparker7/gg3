@@ -53,8 +53,9 @@ def perform_ramp_inference(
     # 4) Storage for ground truth and inference results
     true_ramps     = np.zeros((N, T + 1), dtype=float)
     inferred_ramps = np.zeros((N, T + 1), dtype=float)
+    inferred_ramps_filtered = np.zeros((N, T + 1), dtype=float)
     MAEs           = np.zeros(N, dtype=float)
-
+    MAEs_filtered  = np.zeros(N, dtype=float)
     # 5) Loop over trials
     for i in range(N):
         # 5a) Simulate one trial: (states_i, x_vals_i, spikes_i)
@@ -81,7 +82,7 @@ def perform_ramp_inference(
             pi0=pi0,     # shape (K,)
             Ps=Ps,       # shape (K, K)
             ll=ll_i,     # shape (T+1, K)
-            filter=use_filter
+            filter=False
         )
         # post_probs_i[t, s] = P(s_t = s | data)
 
@@ -92,7 +93,22 @@ def perform_ramp_inference(
         # 5e) Compute MAE for this trial
         MAEs[i] = np.mean(np.abs(Exp_x_i - x_vals_i))
 
-    return true_ramps, inferred_ramps, MAEs
+    # added filtered part irrispective of input. Can change later just need plots
+        post_probs_i_filtered, logZ_i = inference.hmm_expected_states(
+            pi0=pi0,     # shape (K,)
+            Ps=Ps,       # shape (K, K)
+            ll=ll_i,     # shape (T+1, K)
+            filter=True
+        )
+
+        # 5d) Compute E[x_t | data] = sum_s [ x_grid[s] * post_probs_i[t, s] ]
+        Exp_x_i_filtered = (post_probs_i_filtered * x_grid[None, :]).sum(axis=1)   # shape (T+1,)
+        inferred_ramps_filtered[i, :] = Exp_x_i_filtered
+
+        # 5e) Compute MAE for this trial
+        MAEs_filtered[i] = np.mean(np.abs(Exp_x_i_filtered - x_vals_i))
+
+    return true_ramps, inferred_ramps, inferred_ramps_filtered, MAEs, MAEs_filtered
 
 
 def plot_ramp_example(
