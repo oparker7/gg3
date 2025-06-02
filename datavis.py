@@ -4,7 +4,6 @@ import models
 from scipy.signal import convolve
 
 
-
 def rasterPlot(spikes, title='Raster Plot'):
     
     # convert the spike train into an array of spike times
@@ -34,8 +33,8 @@ def _figure_grid(n_rows, n_cols, figsize=(12, 12)):
                              sharex=True, sharey=True, squeeze=False)
     for ax in axes.ravel():
         ax.set_xlim(0, 1000)
-        ax.set_xlabel("time (ms)")
-        ax.set_ylabel("trial")
+        ax.set_xlabel("Time (ms)", fontsize=20)
+        ax.set_ylabel("x(t)", fontsize=20)
     return fig, axes
 
 # Legend handles
@@ -76,7 +75,7 @@ def rampWalkPlot(beta_list, sigma_list,
     fig, ax = _figure_grid(len(beta_list), len(sigma_list))
     for i, b in enumerate(beta_list):
         for j, s in enumerate(sigma_list):
-            ramp          = models.RampModel(beta=b, sigma=s)
+            ramp          = models.RampModel(beta=b, sigma=s, x0=0)
             _, xs, _      = ramp.simulate(Ntrials=n_trials, T=T)
 
         
@@ -88,8 +87,9 @@ def rampWalkPlot(beta_list, sigma_list,
             ax[i, j].set_title(rf"$\beta$={b},  $\sigma$={s}", fontsize=20)
 
     ax[0, 0].legend(frameon=False)
+    plt.suptitle('Continuous Ramp Model Walk Plot', fontsize=24)
     plt.tight_layout()
-    return fig
+    plt.show()
 
 def stepRasterPlot(m_list, r_list,
                      n_trials=5000, T=1000, N_show=10):
@@ -109,8 +109,7 @@ def stepRasterPlot(m_list, r_list,
 
     ax[0, 0].legend(handles=_spike_bound_handles, loc="upper right", frameon=False)
     plt.tight_layout()
-    return fig
-
+    plt.show()
 
 def stepWalkPlot(m_list, r_list,
                    n_trials=5000, T=1000):
@@ -128,7 +127,7 @@ def stepWalkPlot(m_list, r_list,
 
     ax[0, 0].legend(frameon=False)
     plt.tight_layout()
-    return fig
+    plt.show()
 
 def _pretty_grid(nr, nc, figsize=(12, 12), suptitle=None, ypad=.93):
     fig, ax = plt.subplots(nr, nc, figsize=figsize,

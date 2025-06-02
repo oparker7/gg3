@@ -25,7 +25,7 @@ class RampModelHMM:
     - x_t stays at 1 once it reaches it (absorbing barrier)
     """
     
-    def __init__(self, K=50, beta=0.1, sigma=0.2, dt=0.01):
+    def __init__(self, K=50, beta=0.1, sigma=0.2, dt=0.002):
         """
         Initialize the HMM.
         
@@ -136,11 +136,11 @@ class RampModelHMM:
         if ax is None:
             ax = plt.gca()  # Get current axis if none provided
 
-        im = ax.imshow(self.T, cmap='Blues', origin='lower')
+        im = ax.imshow(self.T, cmap='Blues', origin='upper')
         plt.colorbar(im, ax=ax, label='Transition Probability')
-        ax.set_xlabel('Target State s\'')
-        ax.set_ylabel('Current State s')
-        ax.set_title(f'Transition Matrix (β={self.beta}, σ={self.sigma}, dt={self.dt})')
+        ax.set_xlabel('Next State', fontsize=16)
+        ax.set_ylabel('Current State', fontsize=16)
+        ax.set_title(f'Transition Matrix (β={self.beta}, σ={self.sigma})')
 
     
     def plot_stationary_distribution(self, ax=None, max_iter=1000, tol=1e-10):
