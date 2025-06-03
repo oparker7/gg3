@@ -2,24 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import models
 from scipy.signal import convolve
-
-
-def rasterPlot(spikes, title='Raster Plot'):
-    
-    # convert the spike train into an array of spike times
-
-    spike_times = [np.where(spikes !=0)[0] for i in range(spikes.shape[0])]
-
-    # Create the plot, 'spikes' should be a list of arrays where each array contains event times for a different trial
-    plt.eventplot(spike_times, linelengths=0.1, linestyles='solid')
-    
-    # Add labels and title
-    plt.xlabel('Time Step Index')
-    plt.ylabel('Trial Index')
-    plt.title(title)
-    
-    plt.tight_layout()
-    plt.show()
+from scipy.ndimage import gaussian_filter1d
 
 def _find_bound_times_ramp(xs):
     T     = xs.shape[1]
@@ -208,12 +191,6 @@ def psth_grid(model_cls, p1_list, p2_list,
     fig.tight_layout(rect=[0, 0, 1, .92])
     return fig
 
-# Example quick calls
-# psth_grid(models.RampModel, [0.3,1,3], [0.05,.15,.3],
-#           "β", "σ", n_trials=200, bin_width=20, smooth_ms=20)
-# psth_grid(models.StepModel, [200,500,800], [3,30,300],
-#           "m", "r", n_trials=200, bin_width=20, smooth_ms=20)
-
 # Fano-factor time–series for a single setting
 def fanoFactor(model, n_trials=5000, T=1000,
                 bin_width=50, smooth_ms=None,
@@ -308,3 +285,38 @@ def overlay_psth_comparison(ramp_params, step_params,
     ax.set_title("Ramp vs Step PSTH overlay")
     fig.tight_layout()
     return fig
+
+
+def analyse_psth(spike_trains, time, title):
+    """Return smoothed psth, derivatives and the 2nd-derivative range."""
+    t_lo = 0.1
+    t_hi = 0.9
+    SIGMA = 50
+    dt = time[1] - time[0]
+    psth = spike_trains.mean(axis=0)
+    psth_smooth = gaussian_filter1d(psth, sigma=SIGMA)
+    d1 = np.gradient(psth_smooth, dt)
+    d2 = np.gradient(d1, dt)
+
+    # range of 2nd derivative in the chosen window
+    win = (time >= t_lo) & (time <= t_hi)
+    d2_range = np.ptp(d2[win])
+    print(f"{title:<35s}  Range = {d2_range:7.3f}")
+
+    # plotting
+    fig, axs = plt.subplots(1, 3, figsize=(15, 4))
+    axs[0].plot(time, psth, label='raw')
+    axs[0].plot(time, psth_smooth, '--', label='smoothed')
+    axs[0].set_title(title); axs[0].legend()
+    axs[0].set(xlabel='time (s)', ylabel='mean spike count')
+
+    axs[1].plot(time, d1); axs[1].set_title('1st derivative')
+    axs[1].set(xlabel='time (s)', ylabel='rate of change')
+
+    axs[2].plot(time, d2); axs[2].set_title('2nd derivative')
+    axs[2].set(xlabel='time (s)', ylabel='curvature')
+
+    fig.tight_layout()
+    plt.show()
+
+    return d2_range
