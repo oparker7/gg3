@@ -26,31 +26,6 @@ def fanoFac(spikes, bin_width, smooth=None, T=1000):
     
     return times, fano
 
-# unused
-def genFanos(dataset, datasize, T=1000, bw=20):
-
-    fanos = np.array([fanoFac(dataset[i],
-                    bin_width=bw,
-                    T=T)[1]
-                    for i in range(datasize*2)]
-                )
-
-    n = len(fanos[0])
-    clip_fac = 0.1 # fraction of array to remove from start and end
-    fanos = np.array(fanos[:, int(np.floor(n*clip_fac)) : int(np.ceil(n*(1-clip_fac)))])
-    fanos = gaussian_filter1d(fanos, sigma=1, axis=1)
-    fanos_clean = np.nan_to_num(fanos, nan=0.0)
-
-    return fanos_clean
-
-# unused
-def maxFanoFac(fanos, threshold=1.22):
-
-    f_max = np.max(fanos, axis=1)
-    classifier = (f_max > threshold).astype(int)
-
-    return classifier
-
 # notes: genFanoClassifyMax generates the fano factor arrays
 # and then classifies based on the maximum for each model
 # it would be nice to split into genFanos and maxFanoFac 
