@@ -1,7 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import inference
+from inference import hmm_normalizer, poisson_logpdf
 from HMM_models import RampModelHMM, StepModelHMM
+from joblib import Parallel, delayed
 
 def perform_ramp_inference(
     K: int,
@@ -110,7 +112,6 @@ def perform_ramp_inference(
 
     return true_ramps, inferred_ramps, inferred_ramps_filtered, MAEs, MAEs_filtered
 
-
 def plot_ramp_example(
     true_ramps: np.ndarray,
     inferred_ramps: np.ndarray,
@@ -141,8 +142,6 @@ def plot_ramp_example(
     plt.legend()
     plt.tight_layout()
     plt.show()
-
-
 
 def perform_step_inference(
     m: float,
@@ -273,7 +272,6 @@ def perform_step_inference(
 
     return true_taus, est_taus, est_taus_filtered, MAEs, MAEs_filtered
 
-
 def plot_step_example(
     true_taus: np.ndarray,
     est_taus: np.ndarray,
@@ -311,3 +309,158 @@ def plot_step_example(
     plt.legend()
     plt.tight_layout()
     plt.show()
+
+def ramp_grid_inference(
+    true_beta=0.2,
+    true_sigma=0.1,
+    fixed_rh=50.0,      # fixed firing rate scale
+    dt=0.002,
+    T=100,
+    N=50,
+    K=50,
+    beta_range=(0.05, 0.5),
+    sigma_range=(0.05, 0.6),
+    M=30,
+    seed=42
+):
+    np.random.seed(seed)
+    x_grid = np.arange(K) / (K - 1)
+    pi0 = np.zeros(K)
+    pi0[0] = 1.0
+
+    # Simulate spike trains with true params
+    ramp_model = RampModelHMM(K=K, beta=true_beta, sigma=true_sigma, dt=dt)
+    spike_trains = []
+    for _ in range(N):
+        _, x_vals, spikes = ramp_model.simulate_spikes(n_steps=T, initial_state=0, R_h=fixed_rh, dt=dt)
+        spike_trains.append(spikes)
+
+    # Setup grids
+    beta_vals = np.linspace(*beta_range, M)
+    sigma_vals = np.linspace(*sigma_range, M)
+
+    log_post = np.zeros((M, M))
+
+    for i, beta in enumerate(beta_vals):
+        for j, sigma in enumerate(sigma_vals):
+            total_log_likelihood = 0.0
+            model = RampModelHMM(K=K, beta=beta, sigma=sigma, dt=dt)
+            Ps = model.T
+
+            rates = fixed_rh * x_grid
+            lambdas = rates * dt
+
+            for y in spike_trains:
+                ll = poisson_logpdf(y, lambdas)
+                logZ = hmm_normalizer(pi0=pi0, Ps=Ps, ll=ll)
+                total_log_likelihood += logZ
+
+            log_post[i, j] = total_log_likelihood
+
+    # Normalize log posterior
+    log_post -= np.max(log_post)
+    posterior = np.exp(log_post)
+    posterior /= posterior.sum()
+
+    # Plot posterior heatmap
+    plt.figure(figsize=(8, 6))
+    plt.imshow(
+        posterior,
+        extent=[sigma_vals[0], sigma_vals[-1], beta_vals[0], beta_vals[-1]],
+        origin='lower',
+        aspect='auto',
+        cmap='viridis'
+    )
+    plt.colorbar(label='Posterior Probability')
+    plt.scatter(true_sigma, true_beta, color='red', label='True Params')
+    plt.xlabel('sigma')
+    plt.ylabel('beta')
+    plt.title(f'Ramp Model Posterior (N={N}, R_h={fixed_rh})')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    return posterior, beta_vals, sigma_vals
+from joblib import Parallel, delayed
+import numpy as np
+import matplotlib.pyplot as plt
+
+def ramp_grid_inference_optimized(
+    true_beta=0.2,
+    true_sigma=0.1,
+    fixed_rh=50.0,
+    dt=0.002,
+    T=100,
+    N=50,
+    K=50,
+    beta_range=(0.05, 0.5),
+    sigma_range=(0.05, 0.6),
+    M=30,
+    seed=42,
+    n_jobs=-1
+):
+    np.random.seed(seed)
+    x_grid = np.arange(K) / (K - 1)
+    pi0 = np.zeros(K)
+    pi0[0] = 1.0
+
+    # Simulate spike trains from true parameters
+    ramp_model_true = RampModelHMM(K=K, beta=true_beta, sigma=true_sigma, dt=dt)
+    spike_trains = np.array([
+        ramp_model_true.simulate_spikes(n_steps=T, initial_state=0, R_h=fixed_rh, dt=dt)[2]
+        for _ in range(N)
+    ])  # shape: (N, T)
+
+    # Parameter grid
+    beta_vals = np.linspace(*beta_range, M)
+    sigma_vals = np.linspace(*sigma_range, M)
+
+    # Precompute transition matrices
+    T_grid = np.empty((M, M, K, K))
+    for i, beta in enumerate(beta_vals):
+        for j, sigma in enumerate(sigma_vals):
+            model = RampModelHMM(K=K, beta=beta, sigma=sigma, dt=dt)
+            T_grid[i, j] = model.T
+
+    # Precompute Poisson rates
+    lambdas = fixed_rh * x_grid * dt  # shape: (K,)
+
+    # Define log-likelihood function at each grid point
+    def compute_log_likelihood(i, j):
+        Ps = T_grid[i, j]
+        ll_total = 0.0
+        for y in spike_trains:
+            ll = poisson_logpdf(y, lambdas)
+            logZ = hmm_normalizer(pi0, Ps, ll)
+            ll_total += logZ
+        return ll_total
+
+    # Run in parallel over the grid
+    log_likelihoods = Parallel(n_jobs=n_jobs, backend='loky')(
+        delayed(compute_log_likelihood)(i, j)
+        for i in range(M)
+        for j in range(M)
+    )
+
+    # Reshape results to grid
+    log_post = np.array(log_likelihoods).reshape(M, M)
+
+    # Normalize to get posterior
+    log_post -= np.max(log_post)
+    posterior = np.exp(log_post)
+    posterior /= posterior.sum()
+
+    # Plot posterior as a contour plot
+    B, S = np.meshgrid(beta_vals, sigma_vals, indexing='ij')
+    plt.figure(figsize=(8, 6))
+    contour = plt.contourf(S, B, posterior, levels=30, cmap='viridis')
+    plt.colorbar(contour, label='Posterior Probability')
+    plt.scatter(true_sigma, true_beta, color='red', edgecolors='white', label='True Params')
+    plt.xlabel('σ (sigma)')
+    plt.ylabel('β (beta)')
+    plt.title(f'Ramp Model Posterior (N={N}, Rₕ={fixed_rh})')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    return posterior, beta_vals, sigma_vals
