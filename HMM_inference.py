@@ -1,7 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import inference
+from inference import poisson_logpdf, hmm_normalizer
 from HMM_models import RampModelHMM, StepModelHMM
+import numba
+from numba import prange
 
 def perform_ramp_inference(
     K: int,
@@ -110,7 +113,6 @@ def perform_ramp_inference(
 
     return true_ramps, inferred_ramps, inferred_ramps_filtered, MAEs, MAEs_filtered
 
-
 def plot_ramp_example(
     true_ramps: np.ndarray,
     inferred_ramps: np.ndarray,
@@ -141,8 +143,6 @@ def plot_ramp_example(
     plt.legend()
     plt.tight_layout()
     plt.show()
-
-
 
 def perform_step_inference(
     m: float,
@@ -273,7 +273,6 @@ def perform_step_inference(
 
     return true_taus, est_taus, est_taus_filtered, MAEs, MAEs_filtered
 
-
 def plot_step_example(
     true_taus: np.ndarray,
     est_taus: np.ndarray,
@@ -311,3 +310,171 @@ def plot_step_example(
     plt.legend()
     plt.tight_layout()
     plt.show()
+
+def ramp_grid_inference(
+    true_beta=0.2,
+    true_sigma=0.1,
+    fixed_rh=50.0,      # fixed firing rate scale
+    dt=0.002,
+    T=100,
+    N=50,
+    K=50,
+    beta_range=(0.05, 0.5),
+    sigma_range=(0.05, 0.6),
+    M=30,
+    seed=42
+):
+    np.random.seed(seed)
+    x_grid = np.arange(K) / (K - 1)
+    pi0 = np.zeros(K)
+    pi0[0] = 1.0
+
+    # Simulate spike trains with true params
+    ramp_model = RampModelHMM(K=K, beta=true_beta, sigma=true_sigma, dt=dt)
+    spike_trains = []
+    for _ in range(N):
+        _, x_vals, spikes = ramp_model.simulate_spikes(n_steps=T, initial_state=0, R_h=fixed_rh, dt=dt)
+        spike_trains.append(spikes)
+
+    # Setup grids
+    beta_vals = np.linspace(*beta_range, M)
+    sigma_vals = np.linspace(*sigma_range, M)
+
+    log_post = np.zeros((M, M))
+
+    for i, beta in enumerate(beta_vals):
+        for j, sigma in enumerate(sigma_vals):
+            total_log_likelihood = 0.0
+            model = RampModelHMM(K=K, beta=beta, sigma=sigma, dt=dt)
+            Ps = model.T
+
+            rates = fixed_rh * x_grid
+            lambdas = rates * dt
+
+            for y in spike_trains:
+                ll = poisson_logpdf(y, lambdas)
+                logZ = hmm_normalizer(pi0=pi0, Ps=Ps, ll=ll)
+                total_log_likelihood += logZ
+
+            log_post[i, j] = total_log_likelihood
+
+    # Normalize log posterior
+    log_post -= np.max(log_post)
+    posterior = np.exp(log_post)
+    posterior /= posterior.sum()
+
+    # Plot posterior heatmap
+    plt.figure(figsize=(8, 6))
+    plt.imshow(
+        posterior,
+        extent=[sigma_vals[0], sigma_vals[-1], beta_vals[0], beta_vals[-1]],
+        origin='lower',
+        aspect='auto',
+        cmap='viridis'
+    )
+    plt.colorbar(label='Posterior Probability')
+    plt.scatter(true_sigma, true_beta, color='red', label='True Params')
+    plt.xlabel('sigma')
+    plt.ylabel('beta')
+    plt.title(f'Ramp Model Posterior (N={N}, R_h={fixed_rh})')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    return posterior, beta_vals, sigma_vals
+
+#@numba.njit
+def model_log_likelihood_fn(data, pi0, Ps, rates):
+    """
+    Compute log-likelihood of HMM given parameters and observed spike data.
+    
+    Parameters:
+    - data: array of shape (N, T) or (T,) — spike trains
+    - pi0: array of shape (K,) — initial state probabilities
+    - Ps: array of shape (1, K, K) — transition matrix
+    - rates: array of shape (K,) — Poisson rates for emissions
+    
+    Returns:
+    - total_log_likelihood: scalar
+    """
+    if data.ndim == 1:
+        data = data[None, :]  # make it shape (1, T)
+    
+    N, T = data.shape
+    K = len(pi0)
+    total_ll = 0.0
+    
+    for n in range(N):
+        log_likes = poisson_logpdf(data[n], rates)  # (T, K)
+        ll = hmm_normalizer(pi0, Ps, log_likes)
+        total_ll += ll
+    
+    return total_ll
+
+def jit_ramp_grid_inference(model, 
+                    param_ranges, 
+                    M=15,
+                    N_trials=50, 
+                    n_steps=500, 
+                    x0=0.2,
+                    K=100,
+                    R_h =50):
+    """
+    Parameters:
+    - model_log_likelihood_fn: njit-compiled function with signature
+        ll = model_log_likelihood_fn(trial, params, pi0)
+    - true_params: 1D array of true model parameters, either [beta, sigma] or [m, r]
+    - param_ranges: list of tuples [(min1, max1), (min2, max2)] defining the 2D grid range
+    - M: int, number of grid points per axis
+    - N_trials: int, number of trials to simulate and use for inference
+    - K is the number of discretised states the ramp model has
+    Returns:
+    - posterior_grid: normalized posterior on the (M, M) grid
+    - grid_points: (M*M, 2) array of parameter grid points
+    """
+    # create the initial state probability
+    pi0 = np.zeros(K)
+    # find the 0.2th state
+    initial_state_idx = int(np.floor(x0*K))
+    pi0[initial_state_idx] = 1
+
+    # build rates array
+    rates = R_h * np.linspace(0, 1, K)
+
+    # Build 2D grid of parameter points
+    param1_range = np.linspace(param_ranges[0][0], param_ranges[0][1], M)
+    param2_range = np.linspace(param_ranges[1][0], param_ranges[1][1], M)
+    P1, P2 = np.meshgrid(param1_range, param2_range)
+    grid_points = np.stack([P1.ravel(), P2.ravel()], axis=1)
+
+    # Simulate dataset with true params
+    dataset = np.empty((N_trials, n_steps+1))
+    for i in range(N_trials):
+        # take the third output of simulate spikes which is the actual spikes
+        dataset[i,:] = model.simulate_spikes(n_steps, x0)[2]
+
+    #@numba.njit(parallel=True)
+    def compute_grid_log_likelihoods(dataset, grid_points, pi0):
+        N = dataset.shape[0]
+        M2 = grid_points.shape[0]
+        log_likelihoods = np.zeros(M2)
+
+        for i in prange(M2):
+            params = grid_points[i]
+            ll = 0.0
+            for n in range(N):
+                trial = dataset[n]
+                ll += model_log_likelihood_fn(trial, pi0, model.T, rates)
+            log_likelihoods[i] = ll
+        return log_likelihoods
+
+    # Run inference
+    log_likelihoods = compute_grid_log_likelihoods(dataset, grid_points, pi0)
+
+    # Normalize posterior
+    max_ll = np.max(log_likelihoods)
+    posterior_unnorm = np.exp(log_likelihoods - max_ll)
+    posterior = posterior_unnorm / np.sum(posterior_unnorm)
+    posterior_grid = posterior.reshape(M, M)
+
+    return posterior_grid, grid_points

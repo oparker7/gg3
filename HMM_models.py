@@ -43,6 +43,7 @@ class RampModelHMM:
         # Create state grid: x_t = s_t / (K-1) where s_t ∈ {0, 1, ..., K-1}
         self.states = np.arange(K)
         self.x_values = self.states / (K - 1)
+        self.parameters = [self.beta, self.sigma]
         
         # Construct transition matrix
         self.T = self._construct_transition_matrix()  # T is the class attribute for the transition matrix
@@ -211,7 +212,7 @@ class RampModelHMM:
             plt.tight_layout()
             plt.show()
 
-    def simulate_spikes(self, n_steps=500, initial_state=0, R_h=30.0, dt=None):
+    def simulate_spikes(self, n_steps=500, initial_state=0, R_h=50.0, dt=None):
         """
         Simulate one trial of length n_steps for the ramp HMM, and return:
           - states:  array of length n_steps+1, each in {0,…,K-1}
