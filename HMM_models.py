@@ -64,43 +64,39 @@ class RampModelHMM:
             T[s, :] = self._calculate_transition_probs(x_current)
             
         return T
-
     def _calculate_transition_probs(self, x_current):
-        probs   = np.zeros(self.K)
-        dx      = 1.0 / (self.K - 1)
-        mean    = x_current + self.beta * self.dt
-        std     = self.sigma * np.sqrt(self.dt)
+        dx = 1.0 / (self.K - 1)
+        mean = x_current + self.beta * self.dt
+        std = self.sigma * np.sqrt(self.dt)
 
-        # 1. mass that falls below 0  → bin 0   (works for any x_current)
-        if std > 0:
-            p_below0 = norm.cdf((0 - mean) / std)
-        else:               # deterministic step
-            p_below0 = 1.0 if mean < 0 else 0.0
-        probs[0] += p_below0
+        # Bin edges
+        x_centres = self.x_values
+        left_edges = np.clip(x_centres - dx / 2, 0.0, 1.0)
+        right_edges = np.clip(x_centres + dx / 2, 0.0, 1.0)
 
-        # 2. mass that falls above 1 → last bin
+        # Vectorized CDF computations
         if std > 0:
-            p_above1 = 1 - norm.cdf((1 - mean) / std)
+            cdf_left = norm.cdf((left_edges - mean) / std)
+            cdf_right = norm.cdf((right_edges - mean) / std)
+            probs = cdf_right - cdf_left
+            probs[0] += norm.cdf((0 - mean) / std)
+            probs[-1] += 1 - norm.cdf((1 - mean) / std)
         else:
-            p_above1 = 1.0 if mean > 1 else 0.0
-        probs[-1] += p_above1
+            # Deterministic step
+            probs = np.zeros(self.K)
+            if mean < 0:
+                probs[0] = 1.0
+            elif mean > 1:
+                probs[-1] = 1.0
+            else:
+                # Find nearest bin center
+                idx = int(round(mean * (self.K - 1)))
+                probs[idx] = 1.0
 
-        # 3. interior bins (including 0 and K-1 again; harmless because non-overlapping)
-        for s_prime in range(self.K):
-            x_centre = self.x_values[s_prime]
-            left  = x_centre - dx/2
-            right = x_centre + dx/2
-            # clip to [0,1] so we don’t re-add tails we already accounted for
-            left  = max(left, 0.0)
-            right = min(right, 1.0)
-            if right > left:               # non-empty interval
-                probs[s_prime] += self._integrate_gaussian(mean, std, left, right)
-
-        # 4. renormalise
+        # Normalize
         probs /= probs.sum()
         return probs
 
-    
     def _integrate_gaussian(self, mean, std, a, b):
         """Integrate Gaussian PDF from a to b"""
         if std == 0:
