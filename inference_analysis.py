@@ -48,7 +48,7 @@ def plot_error_heatmap(errors, param1_vals, param2_vals,
                       param1_name, param2_name, title):
     """Plot heatmap of inference errors across parameter space"""
     plt.figure(figsize=(5, 4))
-    plt.imshow(errors, cmap='RdYlGn_r', origin='lower', aspect='auto',
+    plt.imshow(errors, cmap='RdYlGn_r', interpolation='nearest', origin='lower', aspect='auto',
                extent=[param2_vals[0], param2_vals[-1], 
                       param1_vals[0], param1_vals[-1]])
     plt.colorbar(label='Mean Absolute Error')
