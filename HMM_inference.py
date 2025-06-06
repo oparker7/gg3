@@ -12,8 +12,7 @@ def perform_ramp_inference(
     R_h: float,
     N: int,
     pi0: np.ndarray = None,
-    use_filter: bool = False
-) -> (np.ndarray, np.ndarray, np.ndarray):
+):
     """
     Simulate N trials from the Ramp HMM, run HMM smoothing (or filtering), and return:
       - true_ramps    : shape (N, T+1), the ground-truth x_t trajectories
@@ -30,7 +29,6 @@ def perform_ramp_inference(
     R_h     : maximum (high) Poisson rate in Hz (float)
     N       : number of trials to simulate (integer)
     pi0     : length-K initial distribution; if None, assumes all mass on state 0 (np.ndarray of shape (K,))
-    use_filter : if True, run filtering (P[s_t | n_{1:t}]); if False, run smoothing (P[s_t | n_{1:T}])
 
     Returns
     -------
@@ -77,7 +75,7 @@ def perform_ramp_inference(
             mask=None              # yields shape (T+1, K)
         )
 
-        # 5c) Run forward–backward: smoothing or filtering
+        # 5c) Run forward–backward: smoothing
         post_probs_i, logZ_i = inference.hmm_expected_states(
             pi0=pi0,     # shape (K,)
             Ps=Ps,       # shape (K, K)
@@ -93,7 +91,7 @@ def perform_ramp_inference(
         # 5e) Compute MAE for this trial
         MAEs[i] = np.mean(np.abs(Exp_x_i - x_vals_i))
 
-    # added filtered part irrispective of input. Can change later just need plots
+    # added filtered part irrispective of input so can compare for some trials
         post_probs_i_filtered, logZ_i = inference.hmm_expected_states(
             pi0=pi0,     # shape (K,)
             Ps=Ps,       # shape (K, K)
@@ -154,8 +152,7 @@ def perform_step_inference(
     N: int,
     exact: bool = False,
     pi0: np.ndarray = None,
-    use_filter: bool = False
-) -> (np.ndarray, np.ndarray, np.ndarray):
+):
     """
     Simulate N trials from the Step HMM, run HMM smoothing (or filtering), and return:
       - true_taus     : shape (N,), the ground-truth jump times τ_true for each trial
@@ -173,7 +170,6 @@ def perform_step_inference(
     N       : number of trials to simulate (integer)
     exact   : if False, use 2-state chain; if True, use (r+1)-state absorbing chain (boolean)
     pi0     : length-K initial distribution; if None, assume start in state 0 (np.ndarray)
-    use_filter : if True, run filtering; if False, run smoothing
 
     Returns
     -------
@@ -208,6 +204,8 @@ def perform_step_inference(
     est_taus_filtered  = np.zeros(N, dtype=int)
     MAEs      = np.zeros(N, dtype=float)
     MAEs_filtered      = np.zeros(N, dtype=float)
+    P_high     = np.zeros((N, T + 1), dtype=float)
+    P_high_f     = np.zeros((N, T + 1), dtype=float)
 
     # 6) Loop over trials
     for i in range(N):
@@ -240,6 +238,7 @@ def perform_step_inference(
 
         # 6d) Compute P_high(t) = sum_{s in high_states} post_probs_i[t, s]
         P_high_i = post_probs_i[:, high_states].sum(axis=1)  # shape (T+1,)
+        P_high[i, :] = P_high_i
 
         # 6e) Estimate jump time: first t where P_high_i > 0.5; if none, use T
         crossing_times = np.where(P_high_i > 0.5)[0]
@@ -262,6 +261,7 @@ def perform_step_inference(
 
         # 6d) Compute P_high(t) = sum_{s in high_states} post_probs_i[t, s]
         P_high_i_filtered = post_probs_i_filtered[:, high_states].sum(axis=1)  # shape (T+1,)
+        P_high_f[i, :] = P_high_i_filtered
 
         # 6e) Estimate jump time: first t where P_high_i > 0.5; if none, use T
         crossing_times_filtered = np.where(P_high_i_filtered > 0.5)[0]
@@ -271,7 +271,7 @@ def perform_step_inference(
         # 6f) Compute MAE = |tau_hat_i - tau_true_i|
         MAEs_filtered[i] = abs(tau_hat_i_filtered - tau_true_i)
 
-    return true_taus, est_taus, est_taus_filtered, MAEs, MAEs_filtered
+    return true_taus, est_taus, est_taus_filtered, MAEs, MAEs_filtered, P_high, P_high_f
 
 
 def plot_step_example(

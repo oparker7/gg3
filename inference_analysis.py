@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from HMM_models import RampModelHMM, StepModelHMM
 import inference
 from HMM_inference import perform_ramp_inference, perform_step_inference
+from joblib import Parallel, delayed
 
 
 # ============================================================================
@@ -138,8 +139,10 @@ def analyze_parameter_regime(model_type='ramp', param_name='beta',
                 param_range = np.array([5, 10, 15, 20])  # shape parameter
             
     errors = []
+    errors_f = []
     for param in param_range:
         trial_errors = []
+        trial_errors_f = []
         for _ in range(n_trials):
             if model_type == 'ramp':
                 # Default ramp parameters
@@ -150,10 +153,11 @@ def analyze_parameter_regime(model_type='ramp', param_name='beta',
                 pi0 = None if param_name != 'pi0' else param
                 
                 # Run inference
-                _, _, mae = perform_ramp_inference(
+                _, _, _, mae, mae_f = perform_ramp_inference(
                     K=K, beta=beta, sigma=sigma, dt=dt, T=T, R_h=R_h, N=1, pi0=pi0
                 )
-                trial_errors.append(mae[0])  # Get MAE for single trial
+                trial_errors.append(np.mean(mae))  # Get MAE for single trial
+                trial_errors_f.append(np.mean(mae_f))
                 
             else:  # step model
                 # Default step parameters
@@ -164,24 +168,28 @@ def analyze_parameter_regime(model_type='ramp', param_name='beta',
                 exact = True
                 
                 # Run inference
-                _, _, mae = perform_step_inference(
+                _, _, _, mae, mae_f, _, _, = perform_step_inference(
                     m=m, r=r, dt=dt, T=T, R_low=R_low, R_high=R_high,
                     N=1, exact=exact
                 )
-                trial_errors.append(mae[0])  # Get MAE for single trial
+                trial_errors.append(np.mean(mae))  # Get MAE for single trial
+                trial_errors_f.append(np.mean(mae_f))
             
         errors.append(np.mean(trial_errors))
-        
-    return param_range, errors
+        errors_f.append(np.mean(trial_errors_f))
 
-def plot_parameter_analysis(param_range, errors, param_name, model_type):
+        
+    return param_range, errors, errors_f
+
+def plot_parameter_analysis(param_range, errors, errors_f, param_name, model_type):
     """Plot parameter analysis results with confidence intervals."""
     plt.figure(figsize=(10,6))
-    plt.plot(param_range, errors, 'o-', label='Mean Error')
-    plt.fill_between(param_range, 
+    plt.plot(param_range, errors, 'o-', label='Mean Error (smooth)')
+    plt.plot(param_range, errors_f, 'o-', label='Mean Error (filter)')
+    '''plt.fill_between(param_range, 
                     np.array(errors) - np.std(errors),
                     np.array(errors) + np.std(errors),
-                    alpha=0.2)
+                    alpha=0.2)'''
     plt.xlabel(param_name)
     plt.ylabel('Mean Absolute Error')
     plt.title(f'Inference Accuracy vs {param_name} ({model_type.title()} Model)')
@@ -189,15 +197,16 @@ def plot_parameter_analysis(param_range, errors, param_name, model_type):
     plt.legend()
     plt.show()
 
-def pi0_plot_parameter_analysis(param_range, errors, param_name, model_type):
+def pi0_plot_parameter_analysis(param_range, errors, errors_f, param_name, model_type):
     """Plot parameter analysis results with confidence intervals for p0"""
     state_indices = [np.argmax(pi0) for pi0 in param_range]
     plt.figure(figsize=(10,6))
-    plt.plot(state_indices, errors, 'o-', label='Mean Error')
-    plt.fill_between(state_indices, 
+    plt.plot(state_indices, errors, 'o-', label='Mean Error (smooth)')
+    plt.plot(state_indices, errors_f, 'o-', label='Mean Error')
+    '''plt.fill_between(state_indices, 
                     np.array(errors) - np.std(errors),
                     np.array(errors) + np.std(errors),
-                    alpha=0.2)
+                    alpha=0.2)'''
     plt.xlabel(param_name)
     plt.ylabel('Mean Absolute Error')
     plt.title(f'Inference Accuracy vs {param_name} ({model_type.title()} Model)')
@@ -229,14 +238,9 @@ def compare_smoothing_filtering(model_type='ramp', n_trials=10):
         sigma = 0.2  # diffusion parameter
         R_h = 30.0  # maximum firing rate
         
-        # Run inference with smoothing
-        true_states, inferred_smooth, mae_smooth = perform_ramp_inference(
-            K=K, beta=beta, sigma=sigma, dt=dt, T=T, R_h=R_h, N=N, use_filter=False
-        )
-        
-        # Run inference with filtering
-        _, inferred_filter, mae_filter = perform_ramp_inference(
-            K=K, beta=beta, sigma=sigma, dt=dt, T=T, R_h=R_h, N=N, use_filter=True
+        # Run inference with smoothing and filtering
+        true_states, inferred_smooth, inferred_filter, mae_smooth, mae_filter = perform_ramp_inference(
+            K=K, beta=beta, sigma=sigma, dt=dt, T=T, R_h=R_h, N=N,
         )
         
     else:  # step model
@@ -248,30 +252,19 @@ def compare_smoothing_filtering(model_type='ramp', n_trials=10):
         exact = True  # use exact (r+1)-state model
         
         # Run inference with smoothing
-        true_states, inferred_smooth, mae_smooth = perform_step_inference(
+        true_states, inferred_smooth, inferred_filter, mae_smooth, mae_filter, _, _ = perform_step_inference(
             m=m, r=r, dt=dt, T=T, R_low=R_low, R_high=R_high,
-            N=N, exact=exact, use_filter=False
-        )
-        
-        # Run inference with filtering
-        _, inferred_filter, mae_filter = perform_step_inference(
-            m=m, r=r, dt=dt, T=T, R_low=R_low, R_high=R_high,
-            N=N, exact=exact, use_filter=True
+            N=N, exact=exact
         )
     
     # Plot comparison
-    metrics = ['mae', 'rmse', 'correlation']
-    if model_type == 'step':
-        metrics.append('accuracy')
+    metrics = ['mae', 'rmse']
         
     fig, axes = plt.subplots(1, len(metrics), figsize=(15, 5))
     for i, metric in enumerate(metrics):
         if metric == 'mae':
             smooth_vals = mae_smooth
             filter_vals = mae_filter
-        if metric == 'accuracy':
-            smooth_vals = (true_states - inferred_smooth)/true_states
-            filter_vals = (true_states - inferred_filter)/true_states
         else:
             # Compute other metrics
             smooth_vals = [evaluate_inference(true_states[j], inferred_smooth[j], smoothing=True)[metric] 
@@ -459,6 +452,7 @@ def plot_duration_analysis(durations, errors, model_type):
     plt.xscale('log')  # Log scale for duration
     plt.show()
 
+
 # ============================================================================
 # Example Usage
 # ============================================================================
@@ -515,3 +509,4 @@ def plot_duration_analysis(durations, errors, model_type):
         'Ramp Model Inference with 95% Confidence Intervals'
     ) 
 '''
+
