@@ -510,3 +510,95 @@ def plot_duration_analysis(durations, errors, model_type):
     ) 
 '''
 
+def run_step_inference_grid(m_vals, r_vals, dt, T, R_low, R_high, N=5, exact=True, n_jobs=-1, plot=True):
+    """
+    Runs step model inference over a grid of (m, r) values in parallel.
+
+    Args:
+        m_vals (array-like): List or array of m values.
+        r_vals (array-like): List or array of r values.
+        dt, T, R_low, R_high: Parameters passed to perform_step_inference.
+        N (int): Number of simulations (default 5).
+        exact (bool): Whether to use exact inference (default True).
+        n_jobs (int): Number of parallel jobs (-1 uses all cores).
+        plot (bool): Whether to generate heatmaps.
+
+    Returns:
+        tuple of np.ndarray: (mae_grid, mae_f_grid), both shaped (len(m_vals), len(r_vals))
+    """
+    
+    def compute_error(m, r):
+        _, _, _, mae, mae_f, _, _ = perform_step_inference(
+            m=m, r=r, dt=dt, T=T, R_low=R_low, R_high=R_high,
+            N=N, exact=exact
+        )
+        return np.mean(mae), np.mean(mae_f)
+
+    # Create parameter grid
+    param_grid = [(m, r) for m in m_vals for r in r_vals]
+
+    # Run in parallel
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(compute_error)(m, r) for m, r in param_grid
+    )
+
+    # Unpack results
+    mae_vals, mae_f_vals = zip(*results)
+
+    # Reshape to 2D grids
+    mae_grid = np.array(mae_vals).reshape(len(m_vals), len(r_vals))
+    mae_f_grid = np.array(mae_f_vals).reshape(len(m_vals), len(r_vals))
+
+    if plot:
+        plot_error_heatmap(mae_grid, m_vals, r_vals,
+                              'm', 'r', 'Step Model MAE vs Parameters (smooth)')
+        plot_error_heatmap(mae_f_grid, m_vals, r_vals,
+                              'm', 'r', 'Step Model MAE vs Parameters (filtered)')
+
+    return mae_grid, mae_f_grid
+
+def run_ramp_inference_grid(beta_vals, sigma_vals, K, dt, T, R_h, N=5, n_jobs=-1, plot=True):
+    """
+    Runs ramp model inference over a grid of (beta, sigma) values in parallel.
+
+    Args:
+        beta_vals (array-like): List or array of m values.
+        sigma_vals (array-like): List or array of r values.
+        dt, T, R_h: Parameters passed to perform_ramp_inference.
+        N (int): Number of simulations (default 5).
+        n_jobs (int): Number of parallel jobs (-1 uses all cores).
+        plot (bool): Whether to generate heatmaps.
+        K
+
+    Returns:
+        tuple of np.ndarray: (mae_grid, mae_f_grid), both shaped (len(beta_vals), len(sigma_vals))
+    """
+
+    def compute_error(beta, sigma):
+        _, _, _, mae, mae_f = perform_ramp_inference(
+            K=K, beta=beta, sigma=sigma, dt=dt, T=T, R_h=R_h, N=N
+        )
+        return np.mean(mae), np.mean(mae_f)
+
+    # Create parameter grid
+    param_grid = [(beta, sigma) for beta in beta_vals for sigma in sigma_vals]
+
+    # Run in parallel
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(compute_error)(beta, sigma) for beta, sigma in param_grid
+    )
+
+    # Unpack results
+    mae_vals, mae_f_vals = zip(*results)
+
+    # Reshape to 2D grids
+    mae_grid = np.array(mae_vals).reshape(len(beta_vals), len(sigma_vals))
+    mae_f_grid = np.array(mae_f_vals).reshape(len(beta_vals), len(sigma_vals))
+
+    if plot:
+        plot_error_heatmap(mae_grid, beta_vals, sigma_vals,
+                           'm', 'r', 'Ramp Model MAE vs Parameters (smooth)')
+        plot_error_heatmap(mae_f_grid, beta_vals, sigma_vals,
+                           'm', 'r', 'Ramp Model MAE vs Parameters (filtered)')
+
+    return mae_grid, mae_f_grid
