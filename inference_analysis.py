@@ -597,8 +597,8 @@ def run_ramp_inference_grid(beta_vals, sigma_vals, K, dt, T, R_h, N=5, n_jobs=-1
 
     if plot:
         plot_error_heatmap(mae_grid, beta_vals, sigma_vals,
-                           'm', 'r', 'Ramp Model MAE vs Parameters (smooth)')
+                           'Beta', 'Sigma', 'Ramp Model MAE vs Parameters (smooth)')
         plot_error_heatmap(mae_f_grid, beta_vals, sigma_vals,
-                           'm', 'r', 'Ramp Model MAE vs Parameters (filtered)')
+                           'Beta', 'Sigma', 'Ramp Model MAE vs Parameters (filtered)')
 
     return mae_grid, mae_f_grid
