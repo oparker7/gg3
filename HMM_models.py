@@ -250,6 +250,7 @@ class RampModelHMM:
         plt.tight_layout()
         plt.show()
 
+
 class StepModelHMM:
     def __init__(self, m, r=1,  dt=1.0, exact=False):
         """
@@ -283,24 +284,20 @@ class StepModelHMM:
     def simulate(self, n_steps=500, n_trials=10):
         all_trajectories = []
         all_jump_times = []
-
         for _ in range(n_trials):
             s = 0
             traj = [s]
             jump_time = None
-
             for t in range(n_steps):
                 s = np.random.choice(self.K, p=self.T[s])
                 traj.append(s)
-                if not self.exact and s == 1 and jump_time is None:
-                    jump_time = t
-                elif self.exact and s == self.r and jump_time is None:
-                    jump_time = t
-
+                if jump_time is None:
+                    if (not self.exact and s == 1) or (self.exact and s == self.r):
+                        jump_time = t + 1
             all_trajectories.append(traj)
             all_jump_times.append(jump_time if jump_time is not None else n_steps)
-
         return np.array(all_trajectories), np.array(all_jump_times)
+
 
     def plot_trajectories(self, trajectories, ax=None):
 
@@ -380,6 +377,8 @@ class StepModelHMM:
             spikes[t] = np.random.poisson(lam = rate_t * dt)
 
         return states, tau_true, spikes
+
+
 
 
 class DiscreteRampHMM:

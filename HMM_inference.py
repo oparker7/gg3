@@ -467,3 +467,65 @@ def ramp_grid_inference_optimized(
     plt.show()
 
     return posterior, beta_vals, sigma_vals
+
+
+
+
+
+def step_grid_posterior(true_m=30, true_r=3,
+                        fixed_rh=50., fixed_rl=10.,
+                        dt=0.01, T=100, N=50,
+                        m_range=(25, 75), r_range=(1, 6),
+                        M_m=30, M_r=6, seed=42, n_jobs=-1):
+
+    rng      = np.random.default_rng(seed)
+
+    # --- simulate data from the exact (r+1)-state model -----------------------
+    hmm_true = StepModelHMM(true_m, true_r, dt, exact=True)
+    latent, _ = hmm_true.simulate(n_steps=T, n_trials=N)
+    spikes = rng.poisson(
+        np.where(latent[:, 1:T+1] == true_r, fixed_rh, fixed_rl) * dt
+    ).astype(int)
+
+    # parameter grid
+    m_vals = np.linspace(*m_range, M_m, dtype=int)
+    r_vals = np.linspace(*r_range, M_r, dtype=int)
+
+    lamb_base = fixed_rl * dt        # low rate
+    def loglik(i, j):
+        m, r = int(m_vals[i]), int(r_vals[j])
+
+        hmm   = StepModelHMM(m, r, dt, exact=True)   # multi-state model
+        lamb  = np.full(hmm.K, fixed_rl * dt)
+        lamb[-1] = fixed_rh * dt                    # high-rate absorbing state
+
+        pi0   = np.zeros(hmm.K); pi0[0] = 1.
+        Ps    = hmm.T
+
+        # sum over all spike trains
+        return sum(
+            hmm_normalizer(
+                pi0, Ps,
+                poisson_logpdf(lamb[:, None], y)     # shape (K, T)
+            )
+            for y in spikes                         
+        )
+
+
+    logL = np.asarray(
+        Parallel(n_jobs=n_jobs, backend='loky')(
+            delayed(loglik)(i, j) for i in range(M_m) for j in range(M_r)
+        )
+    ).reshape(M_m, M_r)
+
+    post = np.exp(logL - logL.max())
+    post /= post.sum()
+
+    M, R = np.meshgrid(m_vals, r_vals, indexing='ij')
+    plt.contourf(R, M, post, 30, cmap='viridis')
+    plt.colorbar(label='Posterior')
+    plt.scatter(true_r, true_m, c='red')
+    plt.xlabel('r'); plt.ylabel('m')
+    plt.tight_layout(); plt.show()
+
+    return post, m_vals, r_vals
