@@ -4,6 +4,9 @@ import inference
 from inference import hmm_normalizer, poisson_logpdf
 from HMM_models import RampModelHMM, StepModelHMM
 from joblib import Parallel, delayed
+from scipy.stats import norm
+import numba   
+from itertools import product
 
 def perform_ramp_inference(
     K: int,
@@ -464,3 +467,164 @@ def ramp_grid_inference_optimized(
     plt.show()
 
     return posterior, beta_vals, sigma_vals
+
+def truncated_normal_pdf(x, mu, true_sigma, lower, upper):
+    Z = norm.cdf(upper, loc=mu, scale=true_sigma) - norm.cdf(lower, loc=mu, scale=true_sigma)
+    return norm.pdf(x, loc=mu, scale=true_sigma) / Z if Z > 0 else 0.0
+
+def initial_distribution(x0, true_sigma, dt, K):
+        mu = x0
+        std = true_sigma * np.sqrt(dt)
+        pi = np.array([truncated_normal_pdf(x, mu, std, 0, 1) for x in np.linspace(0, 1, K)])
+        return pi / pi.sum()
+
+def compute_transition_matrix(beta, sigma, K, dt):
+    model = RampModelHMM(K=K, beta=beta, sigma=sigma, dt=dt)
+    return model.T
+
+def ramp_grid_inference_optimized_with_x0( 
+        # added x0 option
+        # changed ranges
+        # improved speed of transition matrix calc
+        # changed sigma range based on log
+        # added numba
+    true_beta=0.2,
+    true_sigma=0.1,
+    fixed_rh=50.0,
+    dt=0.002,
+    T=100,
+    N=50,
+    K=100,
+    beta_range=(0, 4),
+    sigma_range=(0.04, 4),
+    M=30,
+    seed=42,
+    n_jobs=-1,
+    x0=0.2,
+    plot=True
+):
+    np.random.seed(seed)
+    x_grid = np.arange(K) / (K - 1)
+
+    ramp_model_true = RampModelHMM(K=K, beta=true_beta, sigma=true_sigma, dt=dt)
+    Ps = ramp_model_true.T       # (K × K) transition matrix
+    pi0 = initial_distribution(x0, true_sigma, dt, K)
+    # Simulate spike trains from true parameters
+
+    spike_trains = np.array([
+        ramp_model_true.simulate_spikes(n_steps=T, initial_state=0, R_h=fixed_rh, dt=dt)[2]
+        for _ in range(N)
+    ])  # shape: (N, T)
+
+    # Parameter grid
+    beta_vals = np.linspace(*beta_range, M)
+    log_sigma_vals = np.linspace(np.log(sigma_range[0]), np.log(sigma_range[1]), M)
+    sigma_vals = np.exp(log_sigma_vals)  # log scale for sigma
+
+    # Precompute transition matrices
+    #T_grid = np.empty((M, M, K, K))
+    #for i, beta in enumerate(beta_vals):
+    #    for j, sigma in enumerate(sigma_vals):
+    #        model = RampModelHMM(K=K, beta=beta, sigma=sigma, dt=dt)
+    #        T_grid[i, j] = model.T
+    # Generate parameter grid
+    param_grid = [(b, s) for b in beta_vals for s in sigma_vals]
+    # Compute in parallel
+    T_list = Parallel(n_jobs=-1)(
+        delayed(compute_transition_matrix)(b, s, K, dt) for b, s in param_grid
+    )
+    # Reshape flat list of MxM matrices of shape (KxK) to 4D array (M, M, K, K)
+    T_grid = np.array(T_list).reshape(len(beta_vals), len(sigma_vals), K, K)
+
+    # Precompute Poisson rates
+    lambdas = fixed_rh * x_grid * dt  # shape: (K,)
+
+    # Define log-likelihood function at each grid point
+    def compute_log_likelihood(i, j):
+        Ps = T_grid[i, j]
+        ll_total = 0.0
+        for y in spike_trains:
+            ll = poisson_logpdf(y, lambdas)
+            logZ = hmm_normalizer(pi0, Ps, ll)
+            ll_total += logZ
+        return ll_total
+
+    # Run in parallel over the grid
+    log_likelihoods = Parallel(n_jobs=n_jobs, backend='loky')(
+        delayed(compute_log_likelihood)(i, j)
+        for i in range(M)
+        for j in range(M)
+    )
+
+    # Reshape results to grid
+    log_post = np.array(log_likelihoods).reshape(M, M)
+
+    # Normalize to get posterior using softmax?
+    log_post -= np.max(log_post)
+    posterior = np.exp(log_post)
+    posterior /= posterior.sum()
+
+    if plot:
+    # Plot posterior as a contour plot
+        B, S = np.meshgrid(beta_vals, sigma_vals, indexing='ij')
+        plt.figure(figsize=(8, 6))
+        contour = plt.contourf(S, B, posterior, levels=30, cmap='viridis')
+        plt.colorbar(contour, label='Posterior Probability')
+        plt.scatter(true_sigma, true_beta, color='red', edgecolors='white', label='True Params')
+        plt.xlabel('σ (sigma)')
+        plt.ylabel('β (beta)')
+        plt.title(f'Ramp Model Posterior (N={N}, Rₕ={fixed_rh})')
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+    return posterior, beta_vals, sigma_vals
+
+def run_single_grid(beta, sigma, N, M):
+    result = ramp_grid_inference_optimized_with_x0(
+        true_beta=beta,
+        true_sigma=sigma,
+        N=N,
+        M=M,
+    )
+
+def run_single_grid_noplot(beta, sigma, N, M):
+    result = ramp_grid_inference_optimized_with_x0(
+        true_beta=beta,
+        true_sigma=sigma,
+        N=N,
+        M=M,
+        plot=False
+    )
+    return result
+
+def posterior_subplot(true_betas, true_sigmas, N, M):
+    fig, axs = plt.subplots(nrows=len(true_betas), ncols=len(true_sigmas), figsize=(15, 12))
+    for i, beta in enumerate(true_betas):
+        for j, sigma in enumerate(true_sigmas):
+            # Run the grid inference, capturing output
+            posterior, beta_vals, sigma_vals = run_single_grid_noplot(beta, sigma, N, M)
+
+            # Select the correct subplot axis
+            ax = axs[i, j]
+
+            # Create meshgrid for plotting
+            B, S = np.meshgrid(beta_vals, sigma_vals, indexing='ij')
+
+            # Contour plot on the subplot axis
+            contour = ax.contourf(S, B, posterior, levels=30, cmap='viridis')
+            # Add colorbar for each subplot
+            fig.colorbar(contour, ax=ax)
+
+            # Mark true parameters
+            ax.scatter(sigma, beta, color='red', edgecolors='white', label='True Params')
+
+            # Labels and title
+            ax.set_xlabel('σ (sigma)')
+            ax.set_ylabel('β (beta)')
+            ax.set_title(f'N={N}, True β={beta}, True σ={sigma}')
+
+            ax.legend()
+            print(f"Done beta={beta}, sigma={sigma}")
+    plt.tight_layout()
+    plt.show()
