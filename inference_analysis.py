@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from HMM_models import RampModelHMM, StepModelHMM
 import inference
 from HMM_inference import perform_ramp_inference, perform_step_inference
+from joblib import Parallel, delayed
 
 
 # ============================================================================
@@ -47,7 +48,7 @@ def plot_error_heatmap(errors, param1_vals, param2_vals,
                       param1_name, param2_name, title):
     """Plot heatmap of inference errors across parameter space"""
     plt.figure(figsize=(5, 4))
-    plt.imshow(errors, cmap='RdYlGn_r', origin='lower', aspect='auto',
+    plt.imshow(errors, cmap='RdYlGn_r', interpolation='nearest', origin='lower', aspect='auto',
                extent=[param2_vals[0], param2_vals[-1], 
                       param1_vals[0], param1_vals[-1]])
     plt.colorbar(label='Mean Absolute Error')
@@ -138,8 +139,10 @@ def analyze_parameter_regime(model_type='ramp', param_name='beta',
                 param_range = np.array([5, 10, 15, 20])  # shape parameter
             
     errors = []
+    errors_f = []
     for param in param_range:
         trial_errors = []
+        trial_errors_f = []
         for _ in range(n_trials):
             if model_type == 'ramp':
                 # Default ramp parameters
@@ -150,10 +153,11 @@ def analyze_parameter_regime(model_type='ramp', param_name='beta',
                 pi0 = None if param_name != 'pi0' else param
                 
                 # Run inference
-                _, _, mae = perform_ramp_inference(
+                _, _, _, mae, mae_f = perform_ramp_inference(
                     K=K, beta=beta, sigma=sigma, dt=dt, T=T, R_h=R_h, N=1, pi0=pi0
                 )
-                trial_errors.append(mae[0])  # Get MAE for single trial
+                trial_errors.append(np.mean(mae))  # Get MAE for single trial
+                trial_errors_f.append(np.mean(mae_f))
                 
             else:  # step model
                 # Default step parameters
@@ -164,24 +168,28 @@ def analyze_parameter_regime(model_type='ramp', param_name='beta',
                 exact = True
                 
                 # Run inference
-                _, _, mae = perform_step_inference(
+                _, _, _, mae, mae_f, _, _, = perform_step_inference(
                     m=m, r=r, dt=dt, T=T, R_low=R_low, R_high=R_high,
                     N=1, exact=exact
                 )
-                trial_errors.append(mae[0])  # Get MAE for single trial
+                trial_errors.append(np.mean(mae))  # Get MAE for single trial
+                trial_errors_f.append(np.mean(mae_f))
             
         errors.append(np.mean(trial_errors))
-        
-    return param_range, errors
+        errors_f.append(np.mean(trial_errors_f))
 
-def plot_parameter_analysis(param_range, errors, param_name, model_type):
+        
+    return param_range, errors, errors_f
+
+def plot_parameter_analysis(param_range, errors, errors_f, param_name, model_type):
     """Plot parameter analysis results with confidence intervals."""
     plt.figure(figsize=(10,6))
-    plt.plot(param_range, errors, 'o-', label='Mean Error')
-    plt.fill_between(param_range, 
+    plt.plot(param_range, errors, 'o-', label='Mean Error (smooth)')
+    plt.plot(param_range, errors_f, 'o-', label='Mean Error (filter)')
+    '''plt.fill_between(param_range, 
                     np.array(errors) - np.std(errors),
                     np.array(errors) + np.std(errors),
-                    alpha=0.2)
+                    alpha=0.2)'''
     plt.xlabel(param_name)
     plt.ylabel('Mean Absolute Error')
     plt.title(f'Inference Accuracy vs {param_name} ({model_type.title()} Model)')
@@ -189,15 +197,16 @@ def plot_parameter_analysis(param_range, errors, param_name, model_type):
     plt.legend()
     plt.show()
 
-def pi0_plot_parameter_analysis(param_range, errors, param_name, model_type):
+def pi0_plot_parameter_analysis(param_range, errors, errors_f, param_name, model_type):
     """Plot parameter analysis results with confidence intervals for p0"""
     state_indices = [np.argmax(pi0) for pi0 in param_range]
     plt.figure(figsize=(10,6))
-    plt.plot(state_indices, errors, 'o-', label='Mean Error')
-    plt.fill_between(state_indices, 
+    plt.plot(state_indices, errors, 'o-', label='Mean Error (smooth)')
+    plt.plot(state_indices, errors_f, 'o-', label='Mean Error')
+    '''plt.fill_between(state_indices, 
                     np.array(errors) - np.std(errors),
                     np.array(errors) + np.std(errors),
-                    alpha=0.2)
+                    alpha=0.2)'''
     plt.xlabel(param_name)
     plt.ylabel('Mean Absolute Error')
     plt.title(f'Inference Accuracy vs {param_name} ({model_type.title()} Model)')
@@ -229,14 +238,9 @@ def compare_smoothing_filtering(model_type='ramp', n_trials=10):
         sigma = 0.2  # diffusion parameter
         R_h = 30.0  # maximum firing rate
         
-        # Run inference with smoothing
-        true_states, inferred_smooth, mae_smooth = perform_ramp_inference(
-            K=K, beta=beta, sigma=sigma, dt=dt, T=T, R_h=R_h, N=N, use_filter=False
-        )
-        
-        # Run inference with filtering
-        _, inferred_filter, mae_filter = perform_ramp_inference(
-            K=K, beta=beta, sigma=sigma, dt=dt, T=T, R_h=R_h, N=N, use_filter=True
+        # Run inference with smoothing and filtering
+        true_states, inferred_smooth, inferred_filter, mae_smooth, mae_filter = perform_ramp_inference(
+            K=K, beta=beta, sigma=sigma, dt=dt, T=T, R_h=R_h, N=N,
         )
         
     else:  # step model
@@ -248,30 +252,19 @@ def compare_smoothing_filtering(model_type='ramp', n_trials=10):
         exact = True  # use exact (r+1)-state model
         
         # Run inference with smoothing
-        true_states, inferred_smooth, mae_smooth = perform_step_inference(
+        true_states, inferred_smooth, inferred_filter, mae_smooth, mae_filter, _, _ = perform_step_inference(
             m=m, r=r, dt=dt, T=T, R_low=R_low, R_high=R_high,
-            N=N, exact=exact, use_filter=False
-        )
-        
-        # Run inference with filtering
-        _, inferred_filter, mae_filter = perform_step_inference(
-            m=m, r=r, dt=dt, T=T, R_low=R_low, R_high=R_high,
-            N=N, exact=exact, use_filter=True
+            N=N, exact=exact
         )
     
     # Plot comparison
-    metrics = ['mae', 'rmse', 'correlation']
-    if model_type == 'step':
-        metrics.append('accuracy')
+    metrics = ['mae', 'rmse']
         
     fig, axes = plt.subplots(1, len(metrics), figsize=(15, 5))
     for i, metric in enumerate(metrics):
         if metric == 'mae':
             smooth_vals = mae_smooth
             filter_vals = mae_filter
-        if metric == 'accuracy':
-            smooth_vals = (true_states - inferred_smooth)/true_states
-            filter_vals = (true_states - inferred_filter)/true_states
         else:
             # Compute other metrics
             smooth_vals = [evaluate_inference(true_states[j], inferred_smooth[j], smoothing=True)[metric] 
@@ -459,6 +452,7 @@ def plot_duration_analysis(durations, errors, model_type):
     plt.xscale('log')  # Log scale for duration
     plt.show()
 
+
 # ============================================================================
 # Example Usage
 # ============================================================================
@@ -515,3 +509,96 @@ def plot_duration_analysis(durations, errors, model_type):
         'Ramp Model Inference with 95% Confidence Intervals'
     ) 
 '''
+
+def run_step_inference_grid(m_vals, r_vals, dt, T, R_low, R_high, N=5, exact=True, n_jobs=-1, plot=True):
+    """
+    Runs step model inference over a grid of (m, r) values in parallel.
+
+    Args:
+        m_vals (array-like): List or array of m values.
+        r_vals (array-like): List or array of r values.
+        dt, T, R_low, R_high: Parameters passed to perform_step_inference.
+        N (int): Number of simulations (default 5).
+        exact (bool): Whether to use exact inference (default True).
+        n_jobs (int): Number of parallel jobs (-1 uses all cores).
+        plot (bool): Whether to generate heatmaps.
+
+    Returns:
+        tuple of np.ndarray: (mae_grid, mae_f_grid), both shaped (len(m_vals), len(r_vals))
+    """
+    
+    def compute_error(m, r):
+        _, _, _, mae, mae_f, _, _ = perform_step_inference(
+            m=m, r=r, dt=dt, T=T, R_low=R_low, R_high=R_high,
+            N=N, exact=exact
+        )
+        return np.mean(mae), np.mean(mae_f)
+
+    # Create parameter grid
+    param_grid = [(m, r) for m in m_vals for r in r_vals]
+
+    # Run in parallel
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(compute_error)(m, r) for m, r in param_grid
+    )
+
+    # Unpack results
+    mae_vals, mae_f_vals = zip(*results)
+
+    # Reshape to 2D grids
+    mae_grid = np.array(mae_vals).reshape(len(m_vals), len(r_vals))
+    mae_f_grid = np.array(mae_f_vals).reshape(len(m_vals), len(r_vals))
+
+    if plot:
+        plot_error_heatmap(mae_grid, m_vals, r_vals,
+                              'm', 'r', 'Step Model MAE vs Parameters (smooth)')
+        plot_error_heatmap(mae_f_grid, m_vals, r_vals,
+                              'm', 'r', 'Step Model MAE vs Parameters (filtered)')
+
+    return mae_grid, mae_f_grid
+
+def run_ramp_inference_grid(beta_vals, sigma_vals, K, dt, T, R_h, N=5, n_jobs=-1, plot=True):
+    """
+    Runs ramp model inference over a grid of (beta, sigma) values in parallel.
+
+    Args:
+        beta_vals (array-like): List or array of m values.
+        sigma_vals (array-like): List or array of r values.
+        dt, T, R_h: Parameters passed to perform_ramp_inference.
+        N (int): Number of simulations (default 5).
+        n_jobs (int): Number of parallel jobs (-1 uses all cores).
+        plot (bool): Whether to generate heatmaps.
+        K
+
+    Returns:
+        tuple of np.ndarray: (mae_grid, mae_f_grid), both shaped (len(beta_vals), len(sigma_vals))
+    """
+
+    def compute_error(beta, sigma):
+        _, _, _, mae, mae_f = perform_ramp_inference(
+            K=K, beta=beta, sigma=sigma, dt=dt, T=T, R_h=R_h, N=N
+        )
+        return np.mean(mae), np.mean(mae_f)
+
+    # Create parameter grid
+    param_grid = [(beta, sigma) for beta in beta_vals for sigma in sigma_vals]
+
+    # Run in parallel
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(compute_error)(beta, sigma) for beta, sigma in param_grid
+    )
+
+    # Unpack results
+    mae_vals, mae_f_vals = zip(*results)
+
+    # Reshape to 2D grids
+    mae_grid = np.array(mae_vals).reshape(len(beta_vals), len(sigma_vals))
+    mae_f_grid = np.array(mae_f_vals).reshape(len(beta_vals), len(sigma_vals))
+
+    if plot:
+        plot_error_heatmap(mae_grid, beta_vals, sigma_vals,
+                           'Beta', 'Sigma', 'Ramp Model MAE vs Parameters (smooth)')
+        plot_error_heatmap(mae_f_grid, beta_vals, sigma_vals,
+                           'Beta', 'Sigma', 'Ramp Model MAE vs Parameters (filtered)')
+
+    return mae_grid, mae_f_grid
