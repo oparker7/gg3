@@ -386,18 +386,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 def ramp_grid_inference_optimized(
-    true_beta=0.2,
-    true_sigma=0.1,
+    true_beta=0.5,
+    true_sigma=0.3,
     fixed_rh=50.0,
     dt=0.002,
     T=100,
     N=50,
     K=50,
-    beta_range=(0.05, 0.5),
-    sigma_range=(0.05, 0.6),
+    beta_range=(0.05, 2),
+    sigma_range=(0.05, 1),
     M=30,
     seed=42,
-    n_jobs=-1
+    n_jobs=-1,
+    ax=None
 ):
 
     np.random.seed(seed)
@@ -452,18 +453,20 @@ def ramp_grid_inference_optimized(
     log_post -= np.max(log_post)
     posterior = np.exp(log_post)
     posterior /= posterior.sum()
+    
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8,6))
+    else:
+        fig = ax.figure
 
     # Plot posterior as a contour plot
     B, S = np.meshgrid(beta_vals, sigma_vals, indexing='ij')
-    plt.figure(figsize=(8, 6))
-    contour = plt.contourf(S, B, posterior, levels=30, cmap='viridis')
-    plt.colorbar(contour, label='Posterior Probability')
-    plt.scatter(true_sigma, true_beta, color='red', edgecolors='white', label='True Params')
-    plt.xlabel('σ (sigma)')
-    plt.ylabel('β (beta)')
-    plt.title(f'Ramp Model Posterior (N={N}, Rₕ={fixed_rh})')
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    contour = ax.contourf(S, B, posterior, levels=30, cmap='viridis')
+    cbar = fig.colorbar(contour, ax=ax, label='Posterior Probability')
+    ax.scatter(true_sigma, true_beta, color='red', edgecolors='white', label='True Params')
+    ax.set_xlabel(r'$\sigma$', fontsize=20)
+    ax.set_ylabel(r'$\beta$', fontsize=20)
+    ax.set_title(f'Ramp Model Posterior (N={N}, Rₕ={fixed_rh})')
+    ax.legend()
 
-    return posterior, beta_vals, sigma_vals
+    return posterior, beta_vals, sigma_vals, ax
