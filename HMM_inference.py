@@ -311,10 +311,6 @@ def plot_step_example(
     plt.tight_layout()
     plt.show()
 
-    return posterior, beta_vals, sigma_vals
-
-    return posterior, beta_vals, sigma_vals, ax
-
 def ramp_inference_scan(
     true_beta=0.5,
     true_sigma=0.3,
