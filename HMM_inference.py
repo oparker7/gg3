@@ -399,21 +399,24 @@ def ramp_grid_inference_optimized(
     seed=42,
     n_jobs=-1
 ):
+
     np.random.seed(seed)
     x_grid = np.arange(K) / (K - 1)
     pi0 = np.zeros(K)
-    pi0[0] = 1.0
+    s0 = round(0.2*(K-1))
+    pi0[s0] = 1.0
 
     # Simulate spike trains from true parameters
     ramp_model_true = RampModelHMM(K=K, beta=true_beta, sigma=true_sigma, dt=dt)
     spike_trains = np.array([
-        ramp_model_true.simulate_spikes(n_steps=T, initial_state=0, R_h=fixed_rh, dt=dt)[2]
+        ramp_model_true.simulate_spikes(n_steps=T, initial_state=s0, R_h=fixed_rh, dt=dt)[2]
         for _ in range(N)
     ])  # shape: (N, T)
 
     # Parameter grid
     beta_vals = np.linspace(*beta_range, M)
-    sigma_vals = np.linspace(*sigma_range, M)
+    lnsigma_vals = np.linspace(np.log(sigma_range[0]), np.log(sigma_range[1]), M)
+    sigma_vals = np.exp(lnsigma_vals)  
 
     # Precompute transition matrices
     T_grid = np.empty((M, M, K, K))
