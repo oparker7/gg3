@@ -4,6 +4,7 @@ import inference
 from inference import hmm_normalizer, poisson_logpdf
 from HMM_models import RampModelHMM, StepModelHMM
 from joblib import Parallel, delayed
+from scipy.stats import truncnorm
 
 def perform_ramp_inference(
     K: int,
@@ -389,8 +390,7 @@ def ramp_grid_inference_optimized(
     true_beta=0.5,
     true_sigma=0.3,
     fixed_rh=50.0,
-    dt=0.002,
-    T=100,
+    T=500,
     N=50,
     K=50,
     beta_range=(0.05, 2),
@@ -400,6 +400,8 @@ def ramp_grid_inference_optimized(
     n_jobs=-1,
     ax=None
 ):
+
+    dt = 1/T
 
     np.random.seed(seed)
     x_grid = np.arange(K) / (K - 1)
@@ -470,3 +472,164 @@ def ramp_grid_inference_optimized(
     ax.legend()
 
     return posterior, beta_vals, sigma_vals, ax
+
+import numpy as np
+import matplotlib.pyplot as plt
+from joblib import Parallel, delayed
+from scipy.stats import truncnorm
+
+def ramp_grid_inference_with_prior(
+    true_beta=0.5,
+    true_sigma=0.3,
+    fixed_rh=50.0,
+    dt=0.002,
+    T=100,
+    N=100,
+    K=50,
+    beta_range=(0.05, 2),
+    sigma_range=(0.05, 1),
+    M=30,
+    seed=42,
+    n_jobs=-1,
+    prior_type='uniform',  # Choose between 'uniform' and 'gaussian'
+    prior_sd_fraction=0.25,  # Used if prior_type is 'gaussian'
+    ax=None
+):
+    # simulate a dataset using the true beta and sigma values for the ramp model.
+    np.random.seed(seed)  # Set random seed for reproducibility
+
+    # Create spatial grid for hidden states
+    x_grid = np.arange(K) / (K - 1)
+
+    # Initial distribution over hidden states: spike probability 1 at 20% of state space
+    pi0 = np.zeros(K)
+    s0 = round(0.2 * (K - 1))  # Starting state index
+    pi0[s0] = 1.0
+
+    # Simulate N spike trains using the true parameters
+    ramp_model_true = RampModelHMM(K=K, beta=true_beta, sigma=true_sigma, dt=dt)
+    spike_trains = np.array([
+        ramp_model_true.simulate_spikes(n_steps=T, initial_state=s0, R_h=fixed_rh, dt=dt)[2]
+        for _ in range(N)
+    ])
+    # spike_trains shape: (N trials, T time steps)
+
+    # Generate a meshgrid of beta and sigma values, including transformation for log-sigma.
+    beta_vals = np.linspace(*beta_range, M)
+    lnsigma_vals = np.linspace(np.log(sigma_range[0]), np.log(sigma_range[1]), M)
+    sigma_vals = np.exp(lnsigma_vals)
+
+    # Grid cell size used in marginal likelihood approximation
+    d_beta = (beta_range[1] - beta_range[0]) / (M - 1)
+    d_sigma = (np.log(sigma_range[1]) - np.log(sigma_range[0])) / (M - 1)
+    grid_area = d_beta * d_sigma
+
+    # This section allows selection of prior type: uniform or Gaussian.
+    if prior_type == 'uniform':
+        # Uniform prior over grid: same weight at each grid point
+        prior = np.ones((M, M))
+        prior /= np.sum(prior)  # Normalize so sum = 1
+
+    # gaussian prior is centred on the middle of the range
+    # this is set out in 3.2.2
+    # prior_sd_fraction tells us how wide we should look around the centre
+    elif prior_type == 'gaussian':
+        # Gaussian prior (truncated to bounds of grid)
+        # Independent Gaussians over beta and log(sigma)
+
+        # Set means of priors (center of the range for beta/log-sigma)
+        beta_mu = np.mean(beta_range)
+        sigma_mu = np.mean(np.log(sigma_range))  # log-domain mean for log-normal prior
+
+        # Compute SDs as a fraction of range (e.g., 0.25 of full range)
+        beta_sd = prior_sd_fraction * (beta_range[1] - beta_range[0])
+        sigma_sd = prior_sd_fraction * (np.log(sigma_range[1]) - np.log(sigma_range[0]))
+
+        # Use scipy's truncated normal PDF
+        beta_prior = truncnorm.pdf(
+            beta_vals,
+            (beta_range[0] - beta_mu) / beta_sd,
+            (beta_range[1] - beta_mu) / beta_sd,
+            loc=beta_mu, scale=beta_sd
+        )
+
+        sigma_prior = truncnorm.pdf(
+            lnsigma_vals,
+            (np.log(sigma_range[0]) - sigma_mu) / sigma_sd,
+            (np.log(sigma_range[1]) - sigma_mu) / sigma_sd,
+            loc=sigma_mu, scale=sigma_sd
+        )
+
+        # Outer product to build 2D prior over grid
+        prior = np.outer(beta_prior, sigma_prior)
+        prior /= np.sum(prior)  # Normalize to sum = 1
+
+    else:
+        raise ValueError(f"Unknown prior_type: {prior_type}")
+
+    # Reused code: creates transition matrices for all (β, σ) pairs in the grid.
+    T_grid = np.empty((M, M, K, K))  # Shape: [beta, sigma, K, K]
+    for i, beta in enumerate(beta_vals):
+        for j, sigma in enumerate(sigma_vals):
+            model = RampModelHMM(K=K, beta=beta, sigma=sigma, dt=dt)
+            T_grid[i, j] = model.T  # Store transition matrix
+
+    # Poisson rates used in likelihood evaluation
+    lambdas = fixed_rh * x_grid * dt  # Shape: (K,)
+
+    # Likelihood Computation Over Grid
+    # Reused and parallelized as above
+
+    def compute_log_likelihood(i, j):
+        Ps = T_grid[i, j]
+        ll_total = 0.0
+        for y in spike_trains:
+            ll = poisson_logpdf(y, lambdas)  # Observation likelihood
+            logZ = hmm_normalizer(pi0, Ps, ll)  # Log-normalizer (forward algorithm)
+            ll_total += logZ
+        return ll_total
+
+    # Run in parallel across grid points
+    log_likelihoods = Parallel(n_jobs=n_jobs, backend='loky')(
+        delayed(compute_log_likelihood)(i, j)
+        for i in range(M)
+        for j in range(M)
+    )
+
+    # Reshape to 2D grid
+    log_likelihoods = np.array(log_likelihoods).reshape(M, M)
+
+    # combine prior and likelihood for full posterior
+    # Stability trick: subtract max log-likelihood before exponentiating
+    likelihood = np.exp(log_likelihoods - np.max(log_likelihoods))
+    unnormalized_posterior = likelihood * prior
+    posterior = unnormalized_posterior / np.sum(unnormalized_posterior)  # Normalize
+
+    # Marginal likelihood approximation via numerical integration (Riemann sum)
+    marginal_likelihood = np.sum(unnormalized_posterior) * grid_area
+
+    # Reused plotting logic for visualizing posterior over parameters
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 6))
+    else:
+        fig = ax.figure
+
+    # Contour plot of posterior
+    B, S = np.meshgrid(beta_vals, sigma_vals, indexing='ij')
+    contour = ax.contourf(S, B, posterior, levels=30, cmap='viridis')
+    cbar = fig.colorbar(contour, ax=ax, label='Posterior Probability')
+
+    # Mark true parameter location
+    ax.scatter(true_sigma, true_beta, color='red', edgecolors='white', label='True Params')
+    ax.set_xlabel(r'$\sigma$', fontsize=20)
+    ax.set_ylabel(r'$\beta$', fontsize=20)
+    ax.set_title(f'Ramp Model Posterior (N={N}, Prior={prior_type})')
+    ax.legend()
+
+    # --------------------
+    # RETURN values:
+    # - posterior: normalized grid posterior
+    # - beta_vals, sigma_vals: grid axes
+    # - marginal_likelihood: p(D | model), useful for Bayes factors
+    # - ax: plotting axis (can be reused)
+    return posterior, beta_vals, sigma_vals, marginal_likelihood, ax
