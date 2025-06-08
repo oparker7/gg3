@@ -311,174 +311,11 @@ def plot_step_example(
     plt.tight_layout()
     plt.show()
 
-def ramp_grid_inference(
-    true_beta=0.2,
-    true_sigma=0.1,
-    fixed_rh=50.0,      # fixed firing rate scale
-    dt=0.002,
-    T=100,
-    N=50,
-    K=50,
-    beta_range=(0.05, 0.5),
-    sigma_range=(0.05, 0.6),
-    M=30,
-    seed=42
-):
-    np.random.seed(seed)
-    x_grid = np.arange(K) / (K - 1)
-    pi0 = np.zeros(K)
-    pi0[0] = 1.0
-
-    # Simulate spike trains with true params
-    ramp_model = RampModelHMM(K=K, beta=true_beta, sigma=true_sigma, dt=dt)
-    spike_trains = []
-    for _ in range(N):
-        _, x_vals, spikes = ramp_model.simulate_spikes(n_steps=T, initial_state=0, R_h=fixed_rh, dt=dt)
-        spike_trains.append(spikes)
-
-    # Setup grids
-    beta_vals = np.linspace(*beta_range, M)
-    sigma_vals = np.linspace(*sigma_range, M)
-
-    log_post = np.zeros((M, M))
-
-    for i, beta in enumerate(beta_vals):
-        for j, sigma in enumerate(sigma_vals):
-            total_log_likelihood = 0.0
-            model = RampModelHMM(K=K, beta=beta, sigma=sigma, dt=dt)
-            Ps = model.T
-
-            rates = fixed_rh * x_grid
-            lambdas = rates * dt
-
-            for y in spike_trains:
-                ll = poisson_logpdf(y, lambdas)
-                logZ = hmm_normalizer(pi0=pi0, Ps=Ps, ll=ll)
-                total_log_likelihood += logZ
-
-            log_post[i, j] = total_log_likelihood
-
-    # Normalize log posterior
-    log_post -= np.max(log_post)
-    posterior = np.exp(log_post)
-    posterior /= posterior.sum()
-
-    # Plot posterior heatmap
-    plt.figure(figsize=(8, 6))
-    plt.imshow(
-        posterior,
-        extent=[sigma_vals[0], sigma_vals[-1], beta_vals[0], beta_vals[-1]],
-        origin='lower',
-        aspect='auto',
-        cmap='viridis'
-    )
-    plt.colorbar(label='Posterior Probability')
-    plt.scatter(true_sigma, true_beta, color='red', label='True Params')
-    plt.xlabel('sigma')
-    plt.ylabel('beta')
-    plt.title(f'Ramp Model Posterior (N={N}, R_h={fixed_rh})')
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
     return posterior, beta_vals, sigma_vals
-from joblib import Parallel, delayed
-import numpy as np
-import matplotlib.pyplot as plt
-
-def ramp_grid_inference_optimized(
-    true_beta=0.5,
-    true_sigma=0.3,
-    fixed_rh=50.0,
-    T=500,
-    N=50,
-    K=50,
-    beta_range=(0.05, 2),
-    sigma_range=(0.05, 1),
-    M=30,
-    seed=42,
-    n_jobs=-1,
-    ax=None
-):
-
-    dt = 1/T
-
-    np.random.seed(seed)
-    x_grid = np.arange(K) / (K - 1)
-    pi0 = np.zeros(K)
-    s0 = round(0.2*(K-1))
-    pi0[s0] = 1.0
-
-    # Simulate spike trains from true parameters
-    ramp_model_true = RampModelHMM(K=K, beta=true_beta, sigma=true_sigma, dt=dt)
-    spike_trains = np.array([
-        ramp_model_true.simulate_spikes(n_steps=T, initial_state=s0, R_h=fixed_rh, dt=dt)[2]
-        for _ in range(N)
-    ])  # shape: (N, T)
-
-    # Parameter grid
-    beta_vals = np.linspace(*beta_range, M)
-    lnsigma_vals = np.linspace(np.log(sigma_range[0]), np.log(sigma_range[1]), M)
-    sigma_vals = np.exp(lnsigma_vals)  
-
-    # Precompute transition matrices
-    T_grid = np.empty((M, M, K, K))
-    for i, beta in enumerate(beta_vals):
-        for j, sigma in enumerate(sigma_vals):
-            model = RampModelHMM(K=K, beta=beta, sigma=sigma, dt=dt)
-            T_grid[i, j] = model.T
-
-    # Precompute Poisson rates
-    lambdas = fixed_rh * x_grid * dt  # shape: (K,)
-
-    # Define log-likelihood function at each grid point
-    def compute_log_likelihood(i, j):
-        Ps = T_grid[i, j]
-        ll_total = 0.0
-        for y in spike_trains:
-            ll = poisson_logpdf(y, lambdas)
-            logZ = hmm_normalizer(pi0, Ps, ll)
-            ll_total += logZ
-        return ll_total
-
-    # Run in parallel over the grid
-    log_likelihoods = Parallel(n_jobs=n_jobs, backend='loky')(
-        delayed(compute_log_likelihood)(i, j)
-        for i in range(M)
-        for j in range(M)
-    )
-
-    # Reshape results to grid
-    log_post = np.array(log_likelihoods).reshape(M, M)
-
-    # Normalize to get posterior
-    log_post -= np.max(log_post)
-    posterior = np.exp(log_post)
-    posterior /= posterior.sum()
-    
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(8,6))
-    else:
-        fig = ax.figure
-
-    # Plot posterior as a contour plot
-    B, S = np.meshgrid(beta_vals, sigma_vals, indexing='ij')
-    contour = ax.contourf(S, B, posterior, levels=30, cmap='viridis')
-    cbar = fig.colorbar(contour, ax=ax, label='Posterior Probability')
-    ax.scatter(true_sigma, true_beta, color='red', edgecolors='white', label='True Params')
-    ax.set_xlabel(r'$\sigma$', fontsize=20)
-    ax.set_ylabel(r'$\beta$', fontsize=20)
-    ax.set_title(f'Ramp Model Posterior (N={N}, Rₕ={fixed_rh})')
-    ax.legend()
 
     return posterior, beta_vals, sigma_vals, ax
 
-import numpy as np
-import matplotlib.pyplot as plt
-from joblib import Parallel, delayed
-from scipy.stats import truncnorm
-
-def ramp_grid_inference_with_prior(
+def ramp_inference_scan(
     true_beta=0.5,
     true_sigma=0.3,
     fixed_rh=50.0,
@@ -616,15 +453,15 @@ def ramp_grid_inference_with_prior(
 
     # Contour plot of posterior
     B, S = np.meshgrid(beta_vals, sigma_vals, indexing='ij')
-    contour = ax.contourf(S, B, posterior, levels=30, cmap='viridis')
+    contour = ax.contourf(S, B, posterior, levels=30, cmap='autumn')
     cbar = fig.colorbar(contour, ax=ax, label='Posterior Probability')
 
     # Mark true parameter location
-    ax.scatter(true_sigma, true_beta, color='red', edgecolors='white', label='True Params')
+    ax.scatter(true_sigma, true_beta, color='black', edgecolors='white', label='True Params', linewidth=2, s=200)
     ax.set_xlabel(r'$\sigma$', fontsize=20)
     ax.set_ylabel(r'$\beta$', fontsize=20)
     ax.set_title(f'Ramp Model Posterior (N={N}, Prior={prior_type})')
-    ax.legend()
+    ax.legend(fontsize=18)
 
     # --------------------
     # RETURN values:
@@ -633,3 +470,113 @@ def ramp_grid_inference_with_prior(
     # - marginal_likelihood: p(D | model), useful for Bayes factors
     # - ax: plotting axis (can be reused)
     return posterior, beta_vals, sigma_vals, marginal_likelihood, ax
+
+def step_inference_scan(
+    true_m=100.0,
+    true_r=10,
+    T=500,
+    N=100,
+    m_range=(0.1, 0.9),
+    r_range=(1, 30),
+    M=30,
+    R_low=5.0,
+    R_high=50.0,
+    seed=42,
+    n_jobs=-1,
+    prior_type='uniform',  # or 'gaussian'
+    prior_sd_fraction=0.25,
+    ax=None
+):
+
+    dt = 1/T
+    m_range = tuple(np.array(m_range) * T)
+
+    np.random.seed(seed)
+
+    # Simulate spike trains using true parameters
+    step_model_true = StepModelHMM(m=true_m, r=true_r, dt=dt)
+    spike_trains = np.array([
+        step_model_true.simulate_spikes(n_steps=T, R_low=R_low, R_high=R_high, dt=dt)[2]
+        for _ in range(N)
+    ])
+
+    # Grid values
+    m_vals = np.linspace(*m_range, M)
+    r_vals = np.linspace(*r_range, M).astype(int)
+
+    d_m = (m_range[1] - m_range[0]) / (M - 1)
+    d_r = (r_range[1] - r_range[0]) / (M - 1)
+    grid_area = d_m * d_r
+
+    if prior_type == 'uniform':
+        prior = np.ones((M, M))
+        prior /= np.sum(prior)
+    elif prior_type == 'gaussian':
+        from scipy.stats import truncnorm
+
+        m_mu = np.mean(m_range)
+        r_mu = np.mean(r_range)
+
+        m_sd = prior_sd_fraction * (m_range[1] - m_range[0])
+        r_sd = prior_sd_fraction * (r_range[1] - r_range[0])
+
+        m_prior = truncnorm.pdf(
+            m_vals, (m_range[0]-m_mu)/m_sd, (m_range[1]-m_mu)/m_sd, loc=m_mu, scale=m_sd
+        )
+        r_prior = truncnorm.pdf(
+            r_vals, (r_range[0]-r_mu)/r_sd, (r_range[1]-r_mu)/r_sd, loc=r_mu, scale=r_sd
+        )
+
+        prior = np.outer(m_prior, r_prior)
+        prior /= np.sum(prior)
+    else:
+        raise ValueError(f"Unknown prior_type: {prior_type}")
+
+    def compute_log_likelihood(i, j):
+        m = m_vals[i]
+        r = r_vals[j]
+        model = StepModelHMM(m=m, r=r, dt=dt)
+        ll_total = 0.0
+        for spikes in spike_trains:
+            # Evaluate likelihood via forward algorithm with 2 states
+            pi0 = np.zeros(model.K)
+            pi0[0] = 1.0
+            Tmat = model.T
+            rate0 = R_low * dt
+            rate1 = R_high * dt
+            rates = np.array([rate0, rate1])
+
+            ll = poisson_logpdf(spikes, rates)  # Shape: (T+1, 2)
+            logZ = hmm_normalizer(pi0, Tmat, ll)
+            ll_total += logZ
+        return ll_total
+
+    from joblib import Parallel, delayed
+    log_likelihoods = Parallel(n_jobs=n_jobs, backend='loky')(
+        delayed(compute_log_likelihood)(i, j)
+        for i in range(M)
+        for j in range(M)
+    )
+    log_likelihoods = np.array(log_likelihoods).reshape(M, M)
+
+    likelihood = np.exp(log_likelihoods - np.max(log_likelihoods))
+    unnormalized_posterior = likelihood * prior
+    posterior = unnormalized_posterior / np.sum(unnormalized_posterior)
+    marginal_likelihood = np.sum(unnormalized_posterior) * grid_area
+
+    # Plot posterior
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 6))
+    else:
+        fig = ax.figure
+
+    M_vals, R_vals = np.meshgrid(m_vals, r_vals, indexing='ij')
+    contour = ax.contourf(R_vals, M_vals, posterior, levels=30, cmap='Blues')
+    cbar = fig.colorbar(contour, ax=ax, label='Posterior Probability')
+    ax.scatter(true_r, true_m, color='black', edgecolors='white', label='True Params', linewidth=2, s=200)
+    ax.set_xlabel('r', fontsize=16)
+    ax.set_ylabel('m', fontsize=16)
+    ax.set_title(f'Step Model Posterior (N={N}, Prior={prior_type})')
+    ax.legend(fontsize=18)
+
+    return posterior, m_vals, r_vals, marginal_likelihood, ax
