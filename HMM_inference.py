@@ -312,22 +312,26 @@ def plot_step_example(
     plt.show()
 
 def ramp_inference_scan(
-    true_beta=0.5,
-    true_sigma=0.3,
+    true_beta=2,  # these are only used if
+    true_sigma=1, # no spktrn_arg is used
     fixed_rh=50.0,
-    dt=0.002,
-    T=100,
+    T=500,
     N=100,
     K=50,
-    beta_range=(0.05, 2),
-    sigma_range=(0.05, 1),
+    beta_range=(0, 4),
+    sigma_range=(0.04, 4),  # ranges as specified in handout
     M=30,
     seed=42,
     n_jobs=-1,
     prior_type='uniform',  # Choose between 'uniform' and 'gaussian'
     prior_sd_fraction=0.25,  # Used if prior_type is 'gaussian'
-    ax=None
+    ax=None,
+    plot=True,
+    spktrn_arg=None
 ):
+
+    dt = 1/T
+
     # simulate a dataset using the true beta and sigma values for the ramp model.
     np.random.seed(seed)  # Set random seed for reproducibility
 
@@ -339,13 +343,16 @@ def ramp_inference_scan(
     s0 = round(0.2 * (K - 1))  # Starting state index
     pi0[s0] = 1.0
 
-    # Simulate N spike trains using the true parameters
-    ramp_model_true = RampModelHMM(K=K, beta=true_beta, sigma=true_sigma, dt=dt)
-    spike_trains = np.array([
-        ramp_model_true.simulate_spikes(n_steps=T, initial_state=s0, R_h=fixed_rh, dt=dt)[2]
-        for _ in range(N)
-    ])
-    # spike_trains shape: (N trials, T time steps)
+    if spktrn_arg is None:
+        # Simulate N spike trains using the true parameters
+        ramp_model_true = RampModelHMM(K=K, beta=true_beta, sigma=true_sigma, dt=dt)
+        spike_trains = np.array([
+            ramp_model_true.simulate_spikes(n_steps=T, initial_state=s0, R_h=fixed_rh, dt=dt)[2]
+            for _ in range(N)
+        ])
+        # spike_trains shape: (N trials, T time steps)
+    else:
+        spike_trains = spktrn_arg
 
     # Generate a meshgrid of beta and sigma values, including transformation for log-sigma.
     beta_vals = np.linspace(*beta_range, M)
@@ -418,6 +425,8 @@ def ramp_inference_scan(
         ll_total = 0.0
         for y in spike_trains:
             ll = poisson_logpdf(y, lambdas)  # Observation likelihood
+            #alphas = np.zeros_like(ll)
+            #logZ = inference.forward_pass(pi0, Ps, ll, alphas)
             logZ = hmm_normalizer(pi0, Ps, ll)  # Log-normalizer (forward algorithm)
             ll_total += logZ
         return ll_total
@@ -440,24 +449,24 @@ def ramp_inference_scan(
 
     # Marginal likelihood approximation via numerical integration (Riemann sum)
     marginal_likelihood = np.sum(unnormalized_posterior) * grid_area
+    if plot:
+        # Reused plotting logic for visualizing posterior over parameters
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(8, 6))
+        else:
+            fig = ax.figure
 
-    # Reused plotting logic for visualizing posterior over parameters
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(8, 6))
-    else:
-        fig = ax.figure
+        # Contour plot of posterior
+        B, S = np.meshgrid(beta_vals, sigma_vals, indexing='ij')
+        contour = ax.contourf(S, B, posterior, levels=30, cmap='autumn')
+        cbar = fig.colorbar(contour, ax=ax, label='Posterior Probability')
 
-    # Contour plot of posterior
-    B, S = np.meshgrid(beta_vals, sigma_vals, indexing='ij')
-    contour = ax.contourf(S, B, posterior, levels=30, cmap='autumn')
-    cbar = fig.colorbar(contour, ax=ax, label='Posterior Probability')
-
-    # Mark true parameter location
-    ax.scatter(true_sigma, true_beta, color='black', edgecolors='white', label='True Params', linewidth=2, s=200)
-    ax.set_xlabel(r'$\sigma$', fontsize=20)
-    ax.set_ylabel(r'$\beta$', fontsize=20)
-    ax.set_title(f'Ramp Model Posterior (N={N}, Prior={prior_type})')
-    ax.legend(fontsize=18)
+        # Mark true parameter location
+        ax.scatter(true_sigma, true_beta, color='black', edgecolors='white', label='True Params', linewidth=2, s=200)
+        ax.set_xlabel(r'$\sigma$', fontsize=20)
+        ax.set_ylabel(r'$\beta$', fontsize=20)
+        ax.set_title(f'Ramp Model Posterior (N={N}, Prior={prior_type})')
+        ax.legend(fontsize=18)
 
     # --------------------
     # RETURN values:
@@ -469,11 +478,11 @@ def ramp_inference_scan(
 
 def step_inference_scan(
     true_m=100.0,
-    true_r=10,
+    true_r=4,
     T=500,
     N=100,
-    m_range=(0.1, 0.9),
-    r_range=(1, 30),
+    m_range=(0.25, 0.75),
+    r_range=(1, 6),
     M=30,
     R_low=5.0,
     R_high=50.0,
@@ -481,7 +490,9 @@ def step_inference_scan(
     n_jobs=-1,
     prior_type='uniform',  # or 'gaussian'
     prior_sd_fraction=0.25,
-    ax=None
+    ax=None,
+    plot=True,
+    spktrn_arg=None
 ):
 
     dt = 1/T
@@ -489,12 +500,15 @@ def step_inference_scan(
 
     np.random.seed(seed)
 
-    # Simulate spike trains using true parameters
-    step_model_true = StepModelHMM(m=true_m, r=true_r, dt=dt)
-    spike_trains = np.array([
-        step_model_true.simulate_spikes(n_steps=T, R_low=R_low, R_high=R_high, dt=dt)[2]
-        for _ in range(N)
-    ])
+    if spktrn_arg is None:
+        # Simulate spike trains using true parameters
+        step_model_true = StepModelHMM(m=true_m, r=true_r, dt=dt)
+        spike_trains = np.array([
+            step_model_true.simulate_spikes(n_steps=T, R_low=R_low, R_high=R_high, dt=dt)[2]
+            for _ in range(N)
+        ])
+    else:
+        spike_trains = spktrn_arg
 
     # Grid values
     m_vals = np.linspace(*m_range, M)
@@ -560,19 +574,122 @@ def step_inference_scan(
     posterior = unnormalized_posterior / np.sum(unnormalized_posterior)
     marginal_likelihood = np.sum(unnormalized_posterior) * grid_area
 
-    # Plot posterior
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(8, 6))
-    else:
-        fig = ax.figure
+    if plot:
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(8, 6))
+        else:
+            fig = ax.figure
 
-    M_vals, R_vals = np.meshgrid(m_vals, r_vals, indexing='ij')
-    contour = ax.contourf(R_vals, M_vals, posterior, levels=30, cmap='Blues')
-    cbar = fig.colorbar(contour, ax=ax, label='Posterior Probability')
-    ax.scatter(true_r, true_m, color='black', edgecolors='white', label='True Params', linewidth=2, s=200)
-    ax.set_xlabel('r', fontsize=16)
-    ax.set_ylabel('m', fontsize=16)
-    ax.set_title(f'Step Model Posterior (N={N}, Prior={prior_type})')
-    ax.legend(fontsize=18)
+        # Use imshow: row = m, col = r
+        im = ax.imshow(
+            posterior,
+            extent=[(r_vals[0] - 0.5), (r_vals[-1] + 1), m_vals[0], m_vals[-1]],
+            aspect='auto',
+            origin='lower',
+            cmap='Blues'
+        )
+        cbar = fig.colorbar(im, ax=ax, label='Posterior Probability')
 
+        # Make sure r axis is treated as discrete
+        ax.set_xticks(r_vals)
+        ax.set_xticklabels([str(r) for r in r_vals])
+        ax.set_xlabel('r (discrete)', fontsize=16)
+        ax.set_ylabel('m (continuous)', fontsize=16)
+
+        ax.scatter(true_r, true_m, color='black', edgecolors='white',
+                   label='True Params', linewidth=2, s=200)
+
+        ax.set_title(f'Step Model Posterior (N={N}, Prior={prior_type})')
+        ax.legend(fontsize=18)
+    '''
+    if plot:
+        # Plot posterior
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(8, 6))
+        else:
+            fig = ax.figure
+
+        M_vals, R_vals = np.meshgrid(m_vals, r_vals, indexing='ij')
+        contour = ax.contourf(R_vals, M_vals, posterior, levels=30, cmap='Blues')
+        cbar = fig.colorbar(contour, ax=ax, label='Posterior Probability')
+        ax.scatter(true_r, true_m, color='black', edgecolors='white', label='True Params', linewidth=2, s=200)
+        ax.set_xlabel('r', fontsize=16)
+        ax.set_ylabel('m', fontsize=16)
+        ax.set_title(f'Step Model Posterior (N={N}, Prior={prior_type})')
+        ax.legend(fontsize=18)
+        '''
     return posterior, m_vals, r_vals, marginal_likelihood, ax
+
+
+def bayes_model_selection_scan(spike_trains, T_grid, lambdas,
+                               m_vals, r_vals, R_low, R_high, dt):
+    """
+    Compare Ramp and Step models for each spike train using marginal likelihood and Bayes factor.
+
+    Parameters:
+        spike_trains (np.ndarray): Shape (N, T)
+        T_grid (np.ndarray): Grid of transition matrices for Ramp model [I, J, K, K]
+        lambdas (np.ndarray): Firing rates for Ramp model [K]
+        m_vals (np.ndarray): Step model change points
+        r_vals (np.ndarray): Step model ramping rates
+        R_low, R_high (float): Step model rate bounds
+        dt (float): Time bin size
+
+    Returns:
+        results (list of dict): For each spike train, includes:
+            - 'ml_ramp': best marginal likelihood under Ramp
+            - 'ml_step': best marginal likelihood under Step
+            - 'bayes_factor': ratio of ramp vs step
+            - 'best_ramp_idx': (i, j) index in T_grid
+            - 'best_step_idx': (i, j) index in m_vals x r_vals
+    """
+
+    N = spike_trains.shape[0]
+    results = []
+    pi0 = np.array([1.0, 0.0])  # Always start in state 0
+    K = 2
+
+    for trial_idx in range(N):
+        y = spike_trains[trial_idx]
+
+        # --- Ramp Model ---
+        best_ramp_ll = -np.inf
+        best_ramp_idx = None
+
+        I, J = T_grid.shape[:2]
+        for i in range(I):
+            for j in range(J):
+                Ps = T_grid[i, j]
+                ll = poisson_logpdf(y, lambdas)  # (T, K)
+                logZ = hmm_normalizer(pi0, Ps, ll)
+                if logZ > best_ramp_ll:
+                    best_ramp_ll = logZ
+                    best_ramp_idx = (i, j)
+
+        # --- Step Model ---
+        best_step_ll = -np.inf
+        best_step_idx = None
+
+        for i, m in enumerate(m_vals):
+            for j, r in enumerate(r_vals):
+                model = StepModelHMM(m=m, r=r, dt=dt)
+                Ps = model.T
+                rates = np.array([R_low * dt, R_high * dt])
+                ll = poisson_logpdf(y, rates)  # (T, 2)
+                logZ = hmm_normalizer(pi0, Ps, ll)
+                if logZ > best_step_ll:
+                    best_step_ll = logZ
+                    best_step_idx = (i, j)
+
+        # Bayes factor
+        bf = np.exp(best_ramp_ll - best_step_ll)
+
+        results.append({
+            'ml_ramp': np.exp(best_ramp_ll),
+            'ml_step': np.exp(best_step_ll),
+            'bayes_factor': bf,
+            'best_ramp_idx': best_ramp_idx,
+            'best_step_idx': best_step_idx
+        })
+
+    return results

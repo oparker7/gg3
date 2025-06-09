@@ -233,7 +233,14 @@ class RampModelHMM:
         return states, x_vals, spikes
 
 
-    def walk_plot(self, n_trials=5000, n_steps=1000, n_to_plot=5):
+    def walk_plot(self, n_trials=5000, n_steps=1000, n_to_plot=5, ax=None):
+
+        if ax is None:
+            plt.figure(figsize=(10,6))
+            ax = plt.gca()
+            show_fig = True
+        else:
+            show_fig = False
 
         trajectories = np.empty((n_trials, n_steps+1))
         
@@ -241,17 +248,17 @@ class RampModelHMM:
             _, trajectories[i, :]= self.simulate(n_steps=n_steps)
 
         for k in range(n_to_plot):
-            plt.plot(trajectories[k], alpha=.6)
-            plt.plot(trajectories.mean(0), color="k", lw=2, label="mean $x_t$")
-            plt.ylim(0, 1.1)
-            plt.xlim(0, n_steps)
-            plt.title(rf"$\beta$={self.beta},  $\sigma$={self.sigma}", fontsize=20)
+            ax.plot(trajectories[k], alpha=.6)
+            ax.plot(trajectories.mean(0), color="k", lw=2, label="mean $x_t$")
+            ax.set_ylim(0, 1.1)
+            ax.set_xlim(0, n_steps)
+            ax.set_title(rf"$\beta$={self.beta},  $\sigma$={self.sigma}", fontsize=20)
 
         plt.tight_layout()
         plt.show()
 
 class StepModelHMM:
-    def __init__(self, m, r=1,  dt=1.0, exact=False):
+    def __init__(self, m=50, r=1,  dt=1.0, exact=False):
         """
         m: mean of the NB distribution
         r: shape parameter of NB (r=1 is geometric)
@@ -313,7 +320,8 @@ class StepModelHMM:
 
         for traj in trajectories:
             ax.plot(np.arange(len(traj)) * self.dt, traj)
-
+        
+        ax.plot(trajectories.mean(0), color="k", lw=2, label="mean $x_t$")
         ax.set_xlabel("Time")
         ax.set_ylabel("State")
         ax.set_title("Step Model Trajectories")
