@@ -431,21 +431,23 @@ def psth_grid_with_shapes(model_cls, p1_list, p2_list,
                     psth = psth / n_trials / (bin_width / 1000)  # Convert to Hz
                     psth = _smooth(psth, smooth_ms // bin_width if smooth_ms else None)
 
-                    ax[i, j].bar(edges[:-1], psth, width=bin_width, align='edge', color=shape_colors[shape_idx], alpha=0.7)
+                    ax[i, j].bar(edges[:-1], psth, width=bin_width, align='edge', 
+                                 color=shape_colors[shape_idx], alpha=0.7)
 
                 ax[i, j].legend(handles=legend_handles, loc="upper right", frameon=True)
 
             else:  # StepModel (or any model without shapes)
-                model = model_cls(p1, p2)
-                spikes, *_ = model.simulate(Ntrials=n_trials, T=T)
+                for shape_idx, shape in enumerate(shapes):
+                    model = model_cls(p1, p2)
+                    spikes, *_ = model.simulate(Ntrials=n_trials, T=T)
 
-                spike_times = np.where(spikes)[1]
-                psth, _ = np.histogram(spike_times, bins=edges)
-                psth = psth / n_trials / (bin_width / 1000)  # Convert to Hz
-                psth = _smooth(psth, smooth_ms // bin_width if smooth_ms else None)
+                    spike_times = np.where(spikes)[1]
+                    psth, _ = np.histogram(spike_times, bins=edges)
+                    psth = psth / n_trials / (bin_width / 1000)  # Convert to Hz
+                    psth = _smooth(psth, smooth_ms // bin_width if smooth_ms else None)
 
-                ax[i, j].bar(edges[:-1], psth, width=bin_width, align='edge',
-                             color="#4a90e2")
+                    ax[i, j].bar(edges[:-1], psth, width=bin_width, align='edge', 
+                                 color=shape_colors[shape_idx], alpha=0.7)
 
             ax[i, j].set_ylim(0, ymax)
             ax[i, j].set_xlim(0, T)
