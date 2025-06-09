@@ -1,41 +1,17 @@
 # GG3 Neural Data Analysis
 GG3 -- Neural Data Analysis (Undergraduate IIA project, Department of Engineering, University of Cambridge)
 
-## ToDo
- 
- Week 2
-
- 2.1. 
- - (Done) Work out distribution for ramp model
- - (Done) Create class for HMM ramp model
- - (Done) create trajectories of x_t
- - Based on x_t, calculate firing rate trajectory r_t (add this as a class method)
- - Compare rate trajectories with simulated trajectories from continuous model 
- - Work out why some trajectories get stuck at the initial state: when beta is zero, we need the noise movement i.e. sigma * sqrt dt to escape the bin that defines being at zero, i.e. the jump due to noise has to be bigger than 1/K
- - Find threshold value of sigma so the trajectory doesn't get stuck
-
-2.2.
-- (Done) Time homogeneous markov chain for the step with two states, acheived by using `exact=False`
-- Simulate this markov chain and plot x_t
-- Histogram the jump times of this model
-- Compare to the histograms in week 1
-- Work out why this model is wrong
-- (Done) Make new model with r+1 states, use `exact=True`
-- (Done) simulate several trials of new markov chain
-- Plot histograms of jump times (should add this as a class method)
-- Compare histograms to week 1
-
-2.3.
-- add class method to each HMM class to generate spike train, this could be done by creating a new class `HMM` with argument `step` or `ramp` and then inheriting the appropriate class from `HMM_models.py` (Done)
-- Use `inference.py` to infer the posterior expectation of x_t from a number of trials
-- Look at `GG3_project.ipynb` for which plots to generate
-- Find where the parameter range where the inference is best
-- Compare smoothing vs filterng for `hmm_expected_states`
-
-
-
 ## Overview
 
+Activity in the lateral intra-parietal cortex (LIP) is involved in the control of saccadic eye movements, with the ‘activity’ relating to the firing of synapses in this area of the brain. It is possible to model the neural activity from two schools of thought. Firstly, the ‘ramping’ approach models the firing rate as following a drift-diffusion process akin to Brownian motion. More recently, evidence  has suggested that LIP neurons are better modelled with a ‘step’ firing rate, in that the firing rate jumps from some baseline level to a higher active level.
+
+This is pertinent to study as it helps to place the neurons in the hierarchy of decision making, with the ramping activity resembling a likelihood approach with a decision being made once a threshold likelihood is met. Alternatively, the step model conveys that this area of the brain is simply having the information communicated to it and ‘switches on’ once the decision has been relayed.
+
+Data studied in this experiment is largely in the form of ‘spike trains’, binary arrays indicating neural activity at specific time instances; these spike trains can be interpreted through the lens of firing rate in order to gain insight into the decision-making process that lays beneath.
+
+The step model has one latent variable τ, the jump time, which is governed by two parameters m and r. The probability distribution of τ follows a negative binomial distribution; largely, m governs the mean jump time of an ensemble and r governs the certainty with which this happens.
+
+The ramp model has a series of latent variables x_t which follows the drift-diffusion model as discussed, with β being the drift factor measuring the definite movement with each time step and σ scaling Gaussian noise that perturbs the movement with each time step.
 
 
 ## Venv and jupyter kernel setup
