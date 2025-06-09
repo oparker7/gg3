@@ -396,6 +396,69 @@ def psth_grid(model_cls, p1_list, p2_list,
     fig.tight_layout(rect=[0, 0, 1, .92])
     return fig
 
+# PSTH for different shapes
+def psth_grid_with_shapes(model_cls, p1_list, p2_list,
+                          p1_name, p2_name,
+                          shapes=[1, 3, 5],
+                          n_trials=100, T=1000,
+                          bin_width=50, smooth_ms=None,
+                          ymax=55):
+    """
+    Creates a grid of PSTH panels.
+      model_cls : models.RampModel or models.StepModel
+      p1_list   : list of first parameter (β or m)
+      p2_list   : list of second parameter (σ or r)
+      shapes    : list of isi_gamma_shape values (only used if RampModel)
+    """
+    edges, n_bins = _bin_edges_and_count(bin_width, T)
+    fig, ax = _pretty_grid(len(p1_list), len(p2_list),
+                           suptitle=f"PSTH grid – {model_cls.__name__}")
+
+    shape_colors = ['r', 'g', 'b', 'orange', 'purple']
+    legend_handles = [mpatches.Patch(color=shape_colors[i], label=f'Shape={shapes[i]}')
+                      for i in range(len(shapes))] if model_cls is models.RampModel else None
+
+    for i, p1 in enumerate(p1_list):
+        for j, p2 in enumerate(p2_list):
+
+            if model_cls is models.RampModel:
+                for shape_idx, shape in enumerate(shapes):
+                    model = model_cls(beta=p1, sigma=p2, isi_gamma_shape=shape)
+                    spikes, *_ = model.simulate(Ntrials=n_trials, T=T)
+
+                    spike_times = np.where(spikes)[1]
+                    psth, _ = np.histogram(spike_times, bins=edges)
+                    psth = psth / n_trials / (bin_width / 1000)  # Convert to Hz
+                    psth = _smooth(psth, smooth_ms // bin_width if smooth_ms else None)
+
+                    ax[i, j].bar(edges[:-1], psth, width=bin_width, align='edge', color=shape_colors[shape_idx], alpha=0.7)
+
+                ax[i, j].legend(handles=legend_handles, loc="upper right", frameon=True)
+
+            else:  # StepModel (or any model without shapes)
+                model = model_cls(p1, p2)
+                spikes, *_ = model.simulate(Ntrials=n_trials, T=T)
+
+                spike_times = np.where(spikes)[1]
+                psth, _ = np.histogram(spike_times, bins=edges)
+                psth = psth / n_trials / (bin_width / 1000)  # Convert to Hz
+                psth = _smooth(psth, smooth_ms // bin_width if smooth_ms else None)
+
+                ax[i, j].bar(edges[:-1], psth, width=bin_width, align='edge',
+                             color="#4a90e2")
+
+            ax[i, j].set_ylim(0, ymax)
+            ax[i, j].set_xlim(0, T)
+            ax[i, j].set_title(fr"{p1_name}={p1} | {p2_name}={p2}", fontsize=9)
+
+    ax[-1, 0].set_xlabel("time (ms)")
+    for r in ax:
+        r[0].set_ylabel("Hz")
+    fig.tight_layout(rect=[0, 0, 1, .92])
+    return fig
+
+
+
 # Fano-factor time–series for a single setting
 def fanoFactor(model, n_trials=5000, T=1000,
                 bin_width=50, smooth_ms=None,
