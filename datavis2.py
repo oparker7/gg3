@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import models
 from scipy.signal import convolve
 from scipy.ndimage import gaussian_filter1d
+import matplotlib.patches as mpatches
 
 def _find_bound_times_ramp(xs):
     T     = xs.shape[1]
@@ -53,6 +54,8 @@ def rampRasterPlot(beta_list, sigma_list,
             lineoffsets = []
             shape_colors = ['r', 'g', 'b']
             bound_colors = ['darkred', 'darkgreen', 'darkblue']
+            legend_handles = [mpatches.Patch(color=shape_colors[i], label=f'Shape={shapes[i]}')
+                      for i in range(len(shapes))]
 
             for k, (events, bounds) in enumerate(zip(events_list, bound_events_list)):
                 for t in range(N_show):
@@ -66,23 +69,71 @@ def rampRasterPlot(beta_list, sigma_list,
 
             # Plot events and bounds
             ax[i, j].eventplot(all_events, colors=spike_colors,
-                               lineoffsets=lineoffsets, linelengths=0.6)
-            ax[i, j].eventplot(all_bounds, colors=bound_colors_full,
+                               lineoffsets=lineoffsets, linelengths=0.6, alpha = 0.7)
+            ax[i, j].eventplot(all_bounds, colors='black',
                                lineoffsets=lineoffsets, linelengths=0.8, linewidths=2)
-
-            ax[i, j].set_title(rf"$\beta$={b},  $\sigma$={s}", fontsize=20)
-                
-
-            ax[i, j].eventplot(events, colors=["r, g, b"], lineoffsets=np.arange(N_show),
-                              linelengths=.6)
-            ax[i, j].eventplot(bound_events[:N_show], colors=["darkred, darkgreen, darkblue"],
-                               lineoffsets=np.arange(N_show), linelengths=.8, linewidths=2)
+            
+            ax[i, j].legend(handles=legend_handles, loc="upper right", frameon=True)
 
             ax[i, j].set_title(rf"$\beta$={b},  $\sigma$={s}", fontsize=20)
 
-    ax[0, 0].legend(handles=_spike_bound_handles, loc="upper right", frameon=False)
+
     plt.tight_layout()
     return fig
+
+def rampRasterPlot2(beta_list, sigma_list,
+                   n_trials=5000, T=1000, N_show=10, shapes=[1, 3, 5]):
+    fig, ax = _figure_grid(len(beta_list), len(sigma_list))
+
+    shape_colors = ['r', 'g', 'b']
+    bound_colors = ['darkred', 'darkgreen', 'darkblue']
+
+    # Create legend handles for shapes
+    legend_handles = [mpatches.Patch(color=shape_colors[i], label=f'Shape={shapes[i]}')
+                      for i in range(len(shapes))]
+
+    for i, b in enumerate(beta_list):
+        for j, s in enumerate(sigma_list):
+            ax[i, j].set_title(rf"$\beta$={b},  $\sigma$={s}", fontsize=20)
+
+            for shape_idx, shape in enumerate(shapes):
+                ramp = models.RampModel(beta=b, sigma=s, isi_gamma_shape=shape)
+                spikes, xs, _ = ramp.simulate(Ntrials=n_trials, T=T)
+
+                # Make sure we don't exceed available trials
+                num_trials = min(N_show, len(spikes))
+
+                # Extract spike event times for trials up to num_trials
+                events = [np.where(spikes[k] > 0)[0] for k in range(num_trials)]
+
+                taus = _find_bound_times_ramp(xs)
+                bound_events = [[taus[k]] if (taus[k] >= 0 and k < num_trials) else [] 
+                                for k in range(num_trials)]
+
+                lineoffsets = np.arange(num_trials)
+
+                # Plot spike events for this shape
+                ax[i, j].eventplot(events,
+                                  colors=[shape_colors[shape_idx]] * num_trials,
+                                  lineoffsets=lineoffsets,
+                                  linelengths=0.6,
+                                  alpha=0.5)
+
+                # Plot bound events
+                ax[i, j].eventplot(bound_events,
+                                  colors=[bound_colors[shape_idx]] * num_trials,
+                                  lineoffsets=lineoffsets,
+                                  linelengths=0.8,
+                                  linewidths=2,
+                                  alpha=1)
+                
+
+            ax[i, j].legend(handles=legend_handles, loc="upper right", frameon=True)
+
+    plt.tight_layout()
+    return fig
+
+
 
 def rampWalkPlot(beta_list, sigma_list,
                    n_trials=5000, T=1000):
