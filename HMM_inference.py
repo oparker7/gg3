@@ -150,7 +150,7 @@ def perform_step_inference(
     R_low: float,
     R_high: float,
     N: int,
-    exact: bool = False,
+    exact: bool = True,
     pi0: np.ndarray = None,
 ):
     """
@@ -502,7 +502,7 @@ def step_inference_scan(
 
     if spktrn_arg is None:
         # Simulate spike trains using true parameters
-        step_model_true = StepModelHMM(m=true_m, r=true_r, dt=dt)
+        step_model_true = StepModelHMM(m=true_m, r=true_r, dt=dt, exact=True)
         spike_trains = np.array([
             step_model_true.simulate_spikes(n_steps=T, R_low=R_low, R_high=R_high, dt=dt)[2]
             for _ in range(N)
@@ -512,15 +512,19 @@ def step_inference_scan(
 
     # Grid values
     m_vals = np.linspace(*m_range, M)
-    r_vals = np.linspace(*r_range, M).astype(int)
+    r_vals = np.arange(r_range[0], r_range[1] + 1)      
+    M_m = len(m_vals)   # 30  ←  number of m-values  (continuous axis)
+    M_r = len(r_vals)   #  6  ←  number of r-values  (discrete axis)                               
 
-    d_m = (m_range[1] - m_range[0]) / (M - 1)
-    d_r = (r_range[1] - r_range[0]) / (M - 1)
-    grid_area = d_m * d_r
+
+    d_m = (m_range[1] - m_range[0]) / (M_m - 1)
+    # d_r = (r_range[1] - r_range[0]) / (M - 1)
+    grid_area = d_m 
 
     if prior_type == 'uniform':
-        prior = np.ones((M, M))
-        prior /= np.sum(prior)
+        prior = np.ones((M_m, M_r))
+        prior *= d_m
+        prior /= prior.sum()
     elif prior_type == 'gaussian':
         from scipy.stats import truncnorm
 
@@ -543,36 +547,49 @@ def step_inference_scan(
         raise ValueError(f"Unknown prior_type: {prior_type}")
 
     def compute_log_likelihood(i, j):
+   
+        # --- grid point -------------------------------------------------
         m = m_vals[i]
-        r = r_vals[j]
-        model = StepModelHMM(m=m, r=r, dt=dt)
-        ll_total = 0.0
-        for spikes in spike_trains:
-            # Evaluate likelihood via forward algorithm with 2 states
-            pi0 = np.zeros(model.K)
-            pi0[0] = 1.0
-            Tmat = model.T
-            rate0 = R_low * dt
-            rate1 = R_high * dt
-            rates = np.array([rate0, rate1])
+        r = int(r_vals[j])                    # make sure it’s an int
+        model = StepModelHMM(m=m, r=r, dt=dt, exact=True)
 
-            ll = poisson_logpdf(spikes, rates)  # Shape: (T+1, 2)
+        K     = model.K                      # K = r + 1
+        Tmat  = model.T
+
+        # π₀ shifted forward by the compulsory r transitions
+        pi0 = np.zeros(K)
+        pi0[0] = 1.0
+        # pi0_shift = pi0 @ np.linalg.matrix_power(Tmat, r)
+
+        # emission rates (Hz × dt) — low everywhere except last state
+        rates = np.full(K, R_low * dt)
+        rates[-1] = R_high * dt
+
+        # --- accumulate log evidence over trials -----------------------
+        ll_total = 0.0
+        for spikes in spike_trains:           # ‘spikes’ is 1-D, shape (T+1,)
+            # poisson_logpdf(counts 1-D, rates 1-D)  →  (T+1, K) :contentReference[oaicite:1]{index=1}
+            ll = poisson_logpdf(spikes, rates)          # exactly 2-D
+
             logZ = hmm_normalizer(pi0, Tmat, ll)
             ll_total += logZ
+
         return ll_total
+
+
 
     from joblib import Parallel, delayed
     log_likelihoods = Parallel(n_jobs=n_jobs, backend='loky')(
         delayed(compute_log_likelihood)(i, j)
-        for i in range(M)
-        for j in range(M)
+        for i in range(M_m)
+        for j in range(M_r)
     )
-    log_likelihoods = np.array(log_likelihoods).reshape(M, M)
+    log_likelihoods = np.array(log_likelihoods).reshape(M_m, M_r)
 
     likelihood = np.exp(log_likelihoods - np.max(log_likelihoods))
     unnormalized_posterior = likelihood * prior
     posterior = unnormalized_posterior / np.sum(unnormalized_posterior)
-    marginal_likelihood = np.sum(unnormalized_posterior) * grid_area
+    marginal_likelihood = np.sum(unnormalized_posterior)
 
     if plot:
         if ax is None:
@@ -672,7 +689,7 @@ def bayes_model_selection_scan(spike_trains, T_grid, lambdas,
 
         for i, m in enumerate(m_vals):
             for j, r in enumerate(r_vals):
-                model = StepModelHMM(m=m, r=r, dt=dt)
+                model = StepModelHMM(m=m, r=r, dt=dt, exact=True)
                 Ps = model.T
                 rates = np.array([R_low * dt, R_high * dt])
                 ll = poisson_logpdf(y, rates)  # (T, 2)
