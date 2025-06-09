@@ -28,6 +28,30 @@ _spike_bound_handles = [
 ]
 
 def rampRasterPlot(beta_list, sigma_list,
+                     n_trials=5000, T=1000, N_show=10):
+    fig, ax = _figure_grid(len(beta_list), len(sigma_list))
+    for i, b in enumerate(beta_list):
+        for j, s in enumerate(sigma_list):
+            ramp          = models.RampModel(beta=b, sigma=s)
+            spikes, xs, _ = ramp.simulate(Ntrials=n_trials, T=T)
+
+            events = [np.where(spikes[k] > 0)[0] for k in range(N_show)]
+            taus   = _find_bound_times_ramp(xs)
+            bound_events = [[t] if (k < N_show and taus[k] >= 0) else []
+                            for k, t in enumerate(taus)]
+
+            ax[i, j].eventplot(events, colors="lightcoral", lineoffsets=np.arange(N_show),
+                               linelengths=.6)
+            ax[i, j].eventplot(bound_events[:N_show], colors="black",
+                               lineoffsets=np.arange(N_show), linelengths=.8, linewidths=2)
+
+            ax[i, j].set_title(rf"$\beta$={b},  $\sigma$={s}", fontsize=20)
+
+    ax[0, 0].legend(handles=_spike_bound_handles, loc="upper right", frameon=False)
+    plt.tight_layout()
+    return fig
+
+def rampRasterPlot2(beta_list, sigma_list,
                      n_trials=5000, T=1000, N_show=10, shapes=[1,3,5]):
     fig, ax = _figure_grid(len(beta_list), len(sigma_list))
 
@@ -81,7 +105,7 @@ def rampRasterPlot(beta_list, sigma_list,
     plt.tight_layout()
     return fig
 
-def rampRasterPlot2(beta_list, sigma_list,
+def rampRasterPlot3(beta_list, sigma_list,
                    n_trials=5000, T=1000, N_show=10, shapes=[1, 3, 5]):
     fig, ax = _figure_grid(len(beta_list), len(sigma_list))
 
@@ -178,6 +202,102 @@ def stepRasterPlot(m_list, r_list,
     ax[0, 0].legend(handles=_spike_bound_handles, loc="upper right", frameon=False)
     plt.tight_layout()
     plt.show()
+
+def stepRasterPlot2(m_list, r_list,
+                   n_trials=5000, T=1000, N_show=10, shapes=[1, 3, 5]):
+    fig, ax = _figure_grid(len(m_list), len(r_list))
+
+    shape_colors = ['r', 'g', 'b']
+    jump_colors = ['darkred', 'darkgreen', 'darkblue']
+    legend_handles = [mpatches.Patch(color=shape_colors[i], label=f'Shape={shapes[i]}')
+                      for i in range(len(shapes))]
+
+    for i, m in enumerate(m_list):
+        for j, r in enumerate(r_list):
+            events_list = []
+            jumps_list = []
+
+            for shape in shapes:
+                step = models.StepModel(m=m, r=r, isi_gamma_shape=shape)
+                spikes, jumps, _ = step.simulate(Ntrials=n_trials, T=T)
+
+                events = [np.where(spikes[k] > 0)[0] for k in range(N_show)]
+                jump_events = [[jumps[k]] if k < N_show else [] for k in range(n_trials)]
+
+                events_list.append(events)
+                jumps_list.append(jump_events)
+
+            # Flatten all events
+            all_events = []
+            all_jumps = []
+            lineoffsets = []
+
+            for k, (events, jumps) in enumerate(zip(events_list, jumps_list)):
+                for t in range(N_show):
+                    all_events.append(events[t])
+                    all_jumps.append(jumps[t])
+                    lineoffsets.append(t + k * (N_show + 1))  # offset per shape
+
+            spike_colors = np.repeat(shape_colors[:len(shapes)], N_show)
+
+            ax[i, j].eventplot(all_events, colors=spike_colors,
+                               lineoffsets=lineoffsets, linelengths=0.6, alpha=0.7)
+            ax[i, j].eventplot(all_jumps, colors='black',
+                               lineoffsets=lineoffsets, linelengths=0.8, linewidths=2)
+
+            ax[i, j].legend(handles=legend_handles, loc="upper right", frameon=True)
+            ax[i, j].set_title(rf"$m$={m},  $r$={r}", fontsize=20)
+
+    plt.tight_layout()
+    plt.show()
+
+
+    plt.tight_layout()
+    return fig
+
+def stepRasterPlot3(m_list, r_list,
+                    n_trials=5000, T=1000, N_show=10, shapes=[1, 3, 5]):
+    fig, ax = _figure_grid(len(m_list), len(r_list))
+
+    shape_colors = ['r', 'g', 'b']
+    jump_colors = ['darkred', 'darkgreen', 'darkblue']
+
+    # Create legend handles for each shape
+    legend_handles = [mpatches.Patch(color=shape_colors[i], label=f'Shape={shapes[i]}')
+                      for i in range(len(shapes))]
+
+    for i, m in enumerate(m_list):
+        for j, r in enumerate(r_list):
+            ax[i, j].set_title(rf"$m$={m},  $r$={r}", fontsize=20)
+
+            for shape_idx, shape in enumerate(shapes):
+                step = models.StepModel(m=m, r=r, isi_gamma_shape=shape)
+                spikes, jumps, _ = step.simulate(Ntrials=n_trials, T=T)
+
+                num_trials = min(N_show, len(spikes))
+                events = [np.where(spikes[k] > 0)[0] for k in range(num_trials)]
+                jump_events = [[jumps[k]] if k < num_trials and jumps[k] >= 0 else []
+                               for k in range(num_trials)]
+
+                lineoffsets = np.arange(num_trials) #+ shape_idx * (N_show + 1) take away hash to get same as 2
+
+                ax[i, j].eventplot(events,
+                                   colors=[shape_colors[shape_idx]] * num_trials,
+                                   lineoffsets=lineoffsets,
+                                   linelengths=0.6,
+                                   alpha=0.5)
+
+                ax[i, j].eventplot(jump_events,
+                                   colors=[jump_colors[shape_idx]] * num_trials,
+                                   lineoffsets=lineoffsets,
+                                   linelengths=0.8,
+                                   linewidths=2)
+
+            ax[i, j].legend(handles=legend_handles, loc="upper right", frameon=True)
+
+    plt.tight_layout()
+    return fig
+
 
 def stepWalkPlot(m_list, r_list,
                    n_trials=5000, T=1000):
