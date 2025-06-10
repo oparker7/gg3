@@ -5,6 +5,7 @@ from inference import hmm_normalizer, poisson_logpdf
 from HMM_models import RampModelHMM, StepModelHMM
 from joblib import Parallel, delayed
 from scipy.stats import truncnorm
+from scipy.special import logsumexp
 
 def perform_ramp_inference(
     K: int,
@@ -443,12 +444,14 @@ def ramp_inference_scan(
 
     # combine prior and likelihood for full posterior
     # Stability trick: subtract max log-likelihood before exponentiating
-    likelihood = np.exp(log_likelihoods - np.max(log_likelihoods))
-    unnormalized_posterior = likelihood * prior
-    posterior = unnormalized_posterior / np.sum(unnormalized_posterior)  # Normalize
+    log_prior = np.log(prior)
+    log_unnorm = log_likelihoods + log_prior
+    marginal_log_likelihood = logsumexp(log_unnorm)  # log of marginal likelihood
+    posterior = np.exp(log_unnorm - marginal_log_likelihood)  # Normalize posterior
+    # marginal_likelihood = np.exp(marginal_log_likelihood)  
 
     # Marginal likelihood approximation via numerical integration (Riemann sum)
-    marginal_likelihood = np.sum(unnormalized_posterior) * grid_area
+    
     if plot:
         # Reused plotting logic for visualizing posterior over parameters
         if ax is None:
@@ -474,7 +477,7 @@ def ramp_inference_scan(
     # - beta_vals, sigma_vals: grid axes
     # - marginal_likelihood: p(D | model), useful for Bayes factors
     # - ax: plotting axis (can be reused)
-    return posterior, beta_vals, sigma_vals, marginal_likelihood, ax
+    return posterior, beta_vals, sigma_vals, marginal_log_likelihood, ax
 
 def step_inference_scan(
     true_m=100.0,
@@ -559,7 +562,7 @@ def step_inference_scan(
         # π₀ shifted forward by the compulsory r transitions
         pi0 = np.zeros(K)
         pi0[0] = 1.0
-        # pi0_shift = pi0 @ np.linalg.matrix_power(Tmat, r)
+        pi0_shift = pi0 @ np.linalg.matrix_power(Tmat, r)
 
         # emission rates (Hz × dt) — low everywhere except last state
         rates = np.full(K, R_low * dt)
@@ -571,7 +574,7 @@ def step_inference_scan(
             # poisson_logpdf(counts 1-D, rates 1-D)  →  (T+1, K) :contentReference[oaicite:1]{index=1}
             ll = poisson_logpdf(spikes, rates)          # exactly 2-D
 
-            logZ = hmm_normalizer(pi0, Tmat, ll)
+            logZ = hmm_normalizer(pi0_shift, Tmat, ll)
             ll_total += logZ
 
         return ll_total
@@ -586,10 +589,12 @@ def step_inference_scan(
     )
     log_likelihoods = np.array(log_likelihoods).reshape(M_m, M_r)
 
-    likelihood = np.exp(log_likelihoods - np.max(log_likelihoods))
-    unnormalized_posterior = likelihood * prior
-    posterior = unnormalized_posterior / np.sum(unnormalized_posterior)
-    marginal_likelihood = np.sum(unnormalized_posterior)
+    log_prior = np.log(prior)
+    log_unnorm = log_likelihoods + log_prior
+    marginal_log_likelihood = logsumexp(log_unnorm)  # log of marginal likelihood
+    posterior = np.exp(log_unnorm - marginal_log_likelihood)  # Normalize posterior
+    # marginal_likelihood = np.exp(marginal_log_likelihood)  # Marginal likelihood approximation
+
 
     if plot:
         if ax is None:
@@ -635,7 +640,7 @@ def step_inference_scan(
         ax.set_title(f'Step Model Posterior (N={N}, Prior={prior_type})')
         ax.legend(fontsize=18)
         '''
-    return posterior, m_vals, r_vals, marginal_likelihood, ax
+    return posterior, m_vals, r_vals, marginal_log_likelihood, ax
 
 
 def bayes_model_selection_scan(spike_trains, T_grid, lambdas,
