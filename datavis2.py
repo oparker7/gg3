@@ -460,7 +460,6 @@ def psth_grid_with_shapes(model_cls, p1_list, p2_list,
     return fig
 
 
-
 # Fano-factor time–series for a single setting
 def fanoFactor(model, n_trials=5000, T=1000,
                 bin_width=50, smooth_ms=None,
@@ -495,6 +494,42 @@ def fanoFactor(model, n_trials=5000, T=1000,
         ax.legend(ncol=2, fontsize=12)
 
     return times, fano
+
+def fanoFactor2(model, n_trials=5000, T=1000,
+               bin_width=50, smooth_ms=None,
+               ax=None, label=None, color=None, plot=False, linewidth=1.5):
+    if isinstance(model, models.RampModel):
+        label = label or f"β: {model.beta:.2f}, σ: {model.sigma:.2f}, shape: {model.isi_gamma_shape}"
+        title = 'Ramp Model Fano Factor Plot'
+
+    elif isinstance(model, models.StepModel):
+        label = label or f"m: {model.m:.2f}, r: {model.r:.2f}"
+        title = 'Step Model Fano Factor Plot'
+
+    edges, n_bins = _bin_edges_and_count(bin_width, T)
+    spikes, *_ = model.simulate(Ntrials=n_trials, T=T)
+
+# Count spikes in each bin for every trial  ->  (n_trials, n_bins)
+    binned = np.add.reduceat(spikes, edges[:-1], axis=1)
+    mean = binned.mean(axis=0)
+    var = binned.var(axis=0)
+    fano = var / mean
+    fano = _smooth(fano, smooth_ms // bin_width if smooth_ms else None)
+
+    times = edges[:-1] + bin_width / 2
+    if plot:
+        if ax is None:
+            ax = plt.gca()
+        ax.plot(times, fano, label=label, color=color, linewidth=linewidth)
+        ax.set_xlabel("time (ms)", fontsize=18)
+        ax.set_ylabel("Fano factor", fontsize=18)
+        ax.set_ylim(bottom=0, top=1.8)
+        ax.grid(True, ls='--', lw=.4, color='#e5e5e5')
+        ax.set_title(title, fontsize=22)
+        ax.legend(ncol=2, fontsize=12)
+
+    return times, fano
+
 
 # ️ PSTH fluctuation vs #trials (quantitative Task 1.2)
 def psth_variability(model_cls, params, trial_grid=(10,50,100,200,500,1000),
