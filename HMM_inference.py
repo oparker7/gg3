@@ -443,12 +443,11 @@ def ramp_inference_scan(
     log_likelihoods = np.array(log_likelihoods).reshape(M, M)
 
     # combine prior and likelihood for full posterior
-    # Stability trick: subtract max log-likelihood before exponentiating
-    log_prior = np.log(prior)
+    
+    log_prior = np.log(prior) + np.log(grid_area)  
     log_unnorm = log_likelihoods + log_prior
     marginal_log_likelihood = logsumexp(log_unnorm)  # log of marginal likelihood
-    posterior = np.exp(log_unnorm - marginal_log_likelihood)  # Normalize posterior
-    # marginal_likelihood = np.exp(marginal_log_likelihood)  
+    posterior = np.exp(log_unnorm - marginal_log_likelihood)  # Normalize posterior  
 
     # Marginal likelihood approximation via numerical integration (Riemann sum)
     
@@ -521,8 +520,6 @@ def step_inference_scan(
 
 
     d_m = (m_range[1] - m_range[0]) / (M_m - 1)
-    # d_r = (r_range[1] - r_range[0]) / (M - 1)
-    grid_area = d_m 
 
     if prior_type == 'uniform':
         prior = np.ones((M_m, M_r))
@@ -551,7 +548,7 @@ def step_inference_scan(
 
     def compute_log_likelihood(i, j):
    
-        # --- grid point -------------------------------------------------
+        # grid point 
         m = m_vals[i]
         r = int(r_vals[j])                    # make sure it’s an int
         model = StepModelHMM(m=m, r=r, dt=dt, exact=True)
@@ -559,19 +556,19 @@ def step_inference_scan(
         K     = model.K                      # K = r + 1
         Tmat  = model.T
 
-        # π₀ shifted forward by the compulsory r transitions
+        # shifted forward by the compulsory r transitions
         pi0 = np.zeros(K)
         pi0[0] = 1.0
         pi0_shift = pi0 @ np.linalg.matrix_power(Tmat, r)
 
-        # emission rates (Hz × dt) — low everywhere except last state
+        # emission rates (Hz * dt) — low everywhere except last state
         rates = np.full(K, R_low * dt)
         rates[-1] = R_high * dt
 
-        # --- accumulate log evidence over trials -----------------------
+        # accumulate log evidence over trials 
         ll_total = 0.0
         for spikes in spike_trains:           # ‘spikes’ is 1-D, shape (T+1,)
-            # poisson_logpdf(counts 1-D, rates 1-D)  →  (T+1, K) :contentReference[oaicite:1]{index=1}
+            # poisson_logpdf(counts 1-D, rates 1-D)  has shape  (T+1, K)
             ll = poisson_logpdf(spikes, rates)          # exactly 2-D
 
             logZ = hmm_normalizer(pi0_shift, Tmat, ll)
@@ -593,7 +590,6 @@ def step_inference_scan(
     log_unnorm = log_likelihoods + log_prior
     marginal_log_likelihood = logsumexp(log_unnorm)  # log of marginal likelihood
     posterior = np.exp(log_unnorm - marginal_log_likelihood)  # Normalize posterior
-    # marginal_likelihood = np.exp(marginal_log_likelihood)  # Marginal likelihood approximation
 
 
     if plot:
