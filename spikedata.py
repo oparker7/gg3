@@ -38,7 +38,7 @@ def construct_ramp_transition_matrix(K, beta, sigma, dt):
         T[s, :] = probs / probs.sum()
     return T
 
-def simulate_spikes_standalone(K, beta, sigma, dt, R_h, n_steps=100, initial_state=0):
+def simulate_spikes_standalone(K, beta, sigma, dt, R_h, n_steps=100, initial_state=0.2):
     T = construct_ramp_transition_matrix(K, beta, sigma, dt)
     x_values = np.arange(K) / (K - 1)
 
@@ -159,7 +159,7 @@ def construct_step_transition_matrix(r, m, exact=True):
         T[1, 1] = 1.0
     return T, K
 
-def simulate_step_markov_chain(T, K, n_steps, exact=False, r=None):
+def simulate_step_markov_chain(T, K, n_steps, exact=True, r=None):
     states = np.zeros(n_steps + 1, dtype=int)
     tau_true = None
     for t in range(n_steps):
