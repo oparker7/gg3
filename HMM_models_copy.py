@@ -1,0 +1,539 @@
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import norm
+from scipy.integrate import quad
+
+def _figure_grid(n_rows, n_cols, figsize=(12, 12)):
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize,
+                             sharex=True, sharey=True, squeeze=False)
+    for ax in axes.ravel():
+        ax.set_xlim(0, 1000)
+        ax.set_xlabel("time (ms)")
+        ax.set_ylabel("trial")
+    return fig, axes
+
+## added two new functions required for non-poissonian emmisions
+def lo_histogram(x, bins):
+    """
+    Left-open version of np.histogram with left-open bins covering the interval (left_edge, right_edge]
+    (np.histogram does the opposite and treats bins as right-open.)
+    Input & output behaviour is exactly the same as np.histogram
+    """
+    out = np.histogram(-x, -bins[::-1])
+    return out[0][::-1], out[1:]
+
+def gamma_isi_point_process(rate, shape):
+    """
+    Simulates (1 trial of) a sub-poisson point process (with underdispersed inter-spike intervals relative to Poisson)
+    :param rate: time-series giving the mean spike count (firing rate * dt) in different time bins (= time steps)
+    :param shape: shape parameter of the gamma distribution of ISI's
+    :return: vector of spike counts with same shape as "rate".
+    """
+    sum_r_t = np.hstack((0, np.cumsum(rate)))
+    gs = np.zeros(2)
+    while gs[-1] < sum_r_t[-1]:
+        gs = np.cumsum( npr.gamma(shape, 1 / shape, size=(2 + int(2 * sum_r_t[-1]),)) )
+    y, _ = lo_histogram(gs, sum_r_t)
+
+    return y
+
+
+
+class RampModelHMM:
+    """
+    Hidden Markov Model implementation of the ramp model with boundary conditions.
+    
+    The continuous model follows:
+    x_{t+1} = x_t + β*dt + σ*sqrt(dt)*ε_t
+    
+    With boundary conditions:
+    - x_t cannot go below 0 (reflecting barrier)
+    - x_t stays at 1 once it reaches it (absorbing barrier)
+    """
+    
+    def __init__(self, K=50, beta=0.1, sigma=0.2, dt=0.002, isi_gamma_shape=None):
+        """
+        Initialize the HMM.
+        
+        Parameters:
+        - K: Number of discrete states (grid points from 0 to 1)
+        - beta: Drift parameter
+        - sigma: Diffusion parameter
+        - dt: Time step
+        """
+        self.K = K
+        self.beta = beta
+        self.sigma = sigma
+        self.dt = dt
+        
+        # Create state grid: x_t = s_t / (K-1) where s_t ∈ {0, 1, ..., K-1}
+        self.states = np.arange(K)
+        self.x_values = self.states / (K - 1)
+        self.parameters = [self.beta, self.sigma]
+        
+        # Construct transition matrix
+        self.T = self._construct_transition_matrix()  # T is the class attribute for the transition matrix
+
+        self.isi_gamma_shape = isi_gamma_shape # new parameter
+        
+    def _construct_transition_matrix(self):
+        """Construct the transition matrix T where T[s,s'] = P(s_{t+1} = s' | s_t = s)"""
+        T = np.zeros((self.K, self.K))
+        
+        for s in range(self.K):
+            x_current = self.x_values[s]
+            
+            # Special case: absorbing state at x = 1 (s = K-1)
+            if s == self.K - 1:
+                T[s, s] = 1.0
+                continue
+            
+            # For other states, calculate transition probabilities
+            T[s, :] = self._calculate_transition_probs(x_current)
+            
+        return T
+    def _calculate_transition_probs(self, x_current):
+        dx = 1.0 / (self.K - 1)
+        mean = x_current + self.beta * self.dt
+        std = self.sigma * np.sqrt(self.dt)
+
+        # Bin edges
+        x_centres = self.x_values
+        left_edges = np.clip(x_centres - dx / 2, 0.0, 1.0)
+        right_edges = np.clip(x_centres + dx / 2, 0.0, 1.0)
+
+        # Vectorized CDF computations
+        if std > 0:
+            cdf_left = norm.cdf((left_edges - mean) / std)
+            cdf_right = norm.cdf((right_edges - mean) / std)
+            probs = cdf_right - cdf_left
+            probs[0] += norm.cdf((0 - mean) / std)
+            probs[-1] += 1 - norm.cdf((1 - mean) / std)
+        else:
+            # Deterministic step
+            probs = np.zeros(self.K)
+            if mean < 0:
+                probs[0] = 1.0
+            elif mean > 1:
+                probs[-1] = 1.0
+            else:
+                # Find nearest bin center
+                idx = int(round(mean * (self.K - 1)))
+                probs[idx] = 1.0
+
+        # Normalize
+        probs /= probs.sum()
+        return probs
+
+    def _integrate_gaussian(self, mean, std, a, b):
+        """Integrate Gaussian PDF from a to b"""
+        if std == 0:
+            return 1.0 if a <= mean <= b else 0.0
+        
+        return norm.cdf((b - mean) / std) - norm.cdf((a - mean) / std)
+    
+    def simulate(self, n_steps=500, initial_state=0):
+        """
+        Simulate the HMM for n_steps.
+        
+        Parameters:
+        - n_steps: Number of time steps to simulate
+        - initial_state: Initial state index (default: 0)
+        
+        Returns:
+        - states: Array of state indices
+        - x_values: Array of corresponding x_t values
+        """
+        states = np.zeros(n_steps + 1, dtype=int)
+        states[0] = initial_state
+        
+        for t in range(n_steps):
+            # Sample next state based on transition probabilities
+            probs = self.T[states[t], :]
+            states[t + 1] = np.random.choice(self.K, p=probs)
+        
+
+        x_values = self.x_values[states]
+        return states, x_values
+    
+    def plot_transition_matrix(self, ax=None):
+        """Plot the transition matrix as a heatmap"""
+        if ax is None:
+            ax = plt.gca()  # Get current axis if none provided
+
+        im = ax.imshow(self.T, cmap='Blues', origin='upper')
+        plt.colorbar(im, ax=ax, label='Transition Probability')
+        ax.set_xlabel('Next State', fontsize=16)
+        ax.set_ylabel('Current State', fontsize=16)
+        ax.set_title(f'Transition Matrix (β={self.beta}, σ={self.sigma})')
+
+    
+    def plot_stationary_distribution(self, ax=None, max_iter=1000, tol=1e-10):
+        """Calculate and plot the stationary distribution"""
+        # Start with uniform distribution
+
+        pi = np.ones(self.K) / self.K
+        
+        # Power iteration to find stationary distribution
+        for _ in range(max_iter):
+            pi_new = pi @ self.T
+            if np.linalg.norm(pi_new - pi) < tol:
+                break
+            pi = pi_new
+        
+
+        if ax is None:
+            plt.figure(figsize=(10,6))
+            ax = plt.gca()
+            show_fig = True
+        else:
+            show_fig = False
+
+        ax.plot(self.x_values, pi, 'b-', linewidth=2)
+        ax.set_xlabel('x')
+        ax.set_ylabel('Stationary Probability')
+        ax.set_title(f'Stationary Distribution (β={self.beta}, σ={self.sigma})')
+        ax.grid(True, alpha=0.3)
+
+        if show_fig:
+            plt.show()
+
+        return pi
+
+    def plot_trajectory_comparison(self, x_vals, label=None, ax=None):
+        """ Plot the trajectory and its histogram.
+
+        Parameters:
+        - x_vals: Array of x(t) values (result from simulation)
+        - label: Optional label for legend
+        - ax: Optional tuple of matplotlib axes (trajectory_ax, hist_ax)
+        """
+
+        if ax is None:
+            fig, ax = plt.subplots(1, 2, figsize=(12, 4))
+            show_fig = True
+        else:
+            show_fig = False
+
+        trajectory_ax, hist_ax = ax
+
+        # Plot trajectory
+        trajectory_ax.plot(x_vals)
+        trajectory_ax.set_title(f'Trajectory: β={self.beta}, σ={self.sigma}')
+        trajectory_ax.set_ylabel('x(t)')
+        trajectory_ax.set_xlabel('Time step')
+        trajectory_ax.grid(True, alpha=0.3)
+
+        # Plot histogram
+        hist_ax.hist(x_vals, bins=20, alpha=0.7, density=True, label=label or f'β={self.beta}, σ={self.sigma}')
+        hist_ax.set_xlabel('x')
+        hist_ax.set_ylabel('Density')
+        hist_ax.set_title('Distribution of States')
+        hist_ax.legend()
+        hist_ax.grid(True, alpha=0.3)
+
+        if show_fig:
+            plt.tight_layout()
+            plt.show()
+
+    def simulate_spikes(self, n_steps=500, initial_state=0, R_h=50.0, dt=None):
+        """
+        Simulate one trial of length n_steps for the ramp HMM, and return:
+          - states:  array of length n_steps+1, each in {0,…,K-1}
+          - x_vals:  array of length n_steps+1, x_vals[t] = states[t]/(K-1)
+          - spikes:  array of length n_steps+1, where
+                       rate[t] = R_h * x_vals[t],      or + baseline if desired
+                       spikes[t] - Pois(rate[t]·dt)
+        """
+        if dt is None:
+            dt = self.dt
+        # 1) Draw the discrete chain exactly as simulate() does
+        states = np.zeros(n_steps+1, dtype=int)
+        states[0] = initial_state
+        for t in range(n_steps):
+            probs = self.T[states[t], :]
+            states[t+1] = np.random.choice(self.K, p=probs)
+        # 2) Convert to continuous x_t
+        x_vals = states / float(self.K - 1)
+        # 3) Turn into rate[t] = R_h * x_vals[t], then sample Poisson
+        rates = R_h * x_vals
+        #spikes = np.random.poisson(lam = rates * dt)
+        spikes = self.emit(lam = rates * dt)
+
+        return states, x_vals, spikes
+
+    ## added emmission function for simulating spikes based on gamma_isi_shape parameters
+
+    def emit(self, rate):
+        """
+        emit spikes based on rates
+        :param rate: firing rate sequence, r_t, possibly in many trials. Shape: (Ntrials, T)
+        :return: spike train, n_t, as an array of shape (Ntrials, T) containing integer spike counts in different
+                 trials and time bins.
+        """
+        if self.isi_gamma_shape is None:
+            # poisson spike emissions
+            y = np.random.poisson(rate * self.dt)
+        else:
+            # sub-poisson/underdispersed spike emissions
+            y = gamma_isi_point_process(rate * self.dt, self.isi_gamma_shape)
+
+        return y
+
+    def walk_plot(self, n_trials=5000, n_steps=1000, n_to_plot=5, ax=None):
+
+        if ax is None:
+            plt.figure(figsize=(10,6))
+            ax = plt.gca()
+            show_fig = True
+        else:
+            show_fig = False
+
+        trajectories = np.empty((n_trials, n_steps+1))
+        
+        for i in range(n_trials):
+            _, trajectories[i, :]= self.simulate(n_steps=n_steps)
+
+        for k in range(n_to_plot):
+            ax.plot(trajectories[k], alpha=.6)
+            ax.plot(trajectories.mean(0), color="k", lw=2, label="mean $x_t$")
+            ax.set_ylim(0, 1.1)
+            ax.set_xlim(0, n_steps)
+            ax.set_title(rf"$\beta$={self.beta},  $\sigma$={self.sigma}", fontsize=20)
+
+        plt.tight_layout()
+        plt.show()
+
+class StepModelHMM:
+    def __init__(self, m=50, r=1,  dt=1.0, exact=False, isi_gamma_shape=None):
+        """
+        m: mean of the NB distribution
+        r: shape parameter of NB (r=1 is geometric)
+        T: transition matrix
+        dt: timestep size
+        exact: whether to use exact NB model (with r+1 states)
+        """
+        self.m = m
+        self.r = r
+        self.dt = dt
+        self.exact = exact
+        self.p = r / (m + r)
+        self.K = r + 1 if exact else 2  # number of states
+        self.T = self._construct_transition_matrix()
+
+        self.isi_gamma_shape = isi_gamma_shape # new parameter
+
+    def _construct_transition_matrix(self):
+        T = np.zeros((self.K, self.K))
+        if self.exact:
+            for i in range(self.K - 1):
+                T[i, i] = 1 - self.p
+                T[i, i + 1] = self.p
+            T[-1, -1] = 1.0  # absorbing state
+        else:
+            T[0, 0] = 1 - self.p
+            T[0, 1] = self.p
+            T[1, 1] = 1.0
+        return T
+
+    def simulate(self, n_steps=500, n_trials=10):
+        all_trajectories = []
+        all_jump_times = []
+
+        for _ in range(n_trials):
+            s = 0
+            traj = [s]
+            jump_time = None
+
+            for t in range(n_steps):
+                s = np.random.choice(self.K, p=self.T[s])
+                traj.append(s)
+                if not self.exact and s == 1 and jump_time is None:
+                    jump_time = t
+                elif self.exact and s == self.r and jump_time is None:
+                    jump_time = t
+
+            all_trajectories.append(traj)
+            all_jump_times.append(jump_time if jump_time is not None else n_steps)
+
+        return np.array(all_trajectories), np.array(all_jump_times)
+
+    def plot_trajectories(self, trajectories, ax=None):
+
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(10,6))
+            show_fig = True
+        else:
+            show_fig = False
+
+
+        for traj in trajectories:
+            ax.plot(np.arange(len(traj)) * self.dt, traj)
+        
+        ax.plot(trajectories.mean(0), color="k", lw=2, label="mean $x_t$")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("State")
+        ax.set_title("Step Model Trajectories")
+        plt.grid()
+
+        if show_fig:
+            plt.tight_layout()
+            plt.show()
+
+    def plot_jump_histogram(self, jump_times, ax=None):
+
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(10,6))
+            show_fig = True
+        else:
+            show_fig = False
+
+
+        ax.hist(jump_times * self.dt, bins=20, edgecolor='black')
+        ax.set_xlabel("Jump Time")
+        ax.set_ylabel("Count")
+        ax.set_title("Histogram of Jump Times")
+        plt.grid()
+
+        if show_fig:
+            plt.tight_layout()
+            plt.show()
+
+    def simulate_spikes(self, n_steps=500, R_low=5.0, R_high=50.0, dt=None):
+        """
+        Simulate one trial of the step HMM (2 state or r+1 state), and return:
+          - states:   array of length n_steps+1, each in {0,…,K-1}
+          - tau_true: integer index of first step into the 'high' state
+          - spikes:   array of length n_steps+1, where
+                        if states[t] < (high-state index) then rate = R_low
+                        else then rate = R_high
+                        spikes[t] - Pois(rate·dt)
+        """
+        if dt is None:
+            dt = self.dt
+
+        # Draw the discrete chain
+        states   = np.zeros(n_steps+1, dtype=int)
+        states[0] = 0
+        tau_true = None
+        for t in range(n_steps):
+            states[t+1] = np.random.choice(self.K, p=self.T[states[t], :])
+            # Detect first time we hit the “absorbing high”:
+            if tau_true is None:
+                if (not self.exact and states[t+1] == 1) \
+                   or (self.exact and states[t+1] == self.r):
+                    tau_true = t+1
+
+        if tau_true is None:
+            tau_true = n_steps  # if no jump, set it to final bin
+
+        # 2) Build rate[t] and sample spikes[t]
+        spikes = np.zeros(n_steps+1, dtype=int)
+        for t in range(n_steps+1):
+            if (not self.exact and states[t] == 1) or (self.exact and states[t] == self.r):
+                rate_t = R_high
+            else:
+                rate_t = R_low
+            #spikes[t] = np.random.poisson(lam = rate_t * dt) #old emmision
+            spikes[t] = self.emit(lam = rate_t * dt) #new emission
+
+        return states, tau_true, spikes
+
+    ## added emmission function for simulating spikes based on gamma_isi_shape parameters
+
+    def emit(self, rate):
+        """
+        emit spikes based on rates
+        :param rate: firing rate sequence, r_t, possibly in many trials. Shape: (Ntrials, T)
+        :return: spike train, n_t, as an array of shape (Ntrials, T) containing integer spike counts in different
+                 trials and time bins.
+        """
+        if self.isi_gamma_shape is None:
+            # poisson spike emissions
+            y = np.random.poisson(rate * self.dt)
+        else:
+            # sub-poisson/underdispersed spike emissions
+            y = gamma_isi_point_process(rate * self.dt, self.isi_gamma_shape)
+
+        return y
+
+class DiscreteRampHMM:
+    def __init__(self, beta, sigma, dt, K, x0):
+        self.beta = beta
+        self.sigma = sigma
+        self.dt = dt
+        self.K = K
+        self.x0 = x0
+        self.grid = np.linspace(0, 1, K)
+        self.T = self._build_transition_matrix()
+        self.pi = self._build_initial_distribution()
+
+    def _truncated_normal_pdf(self, x, mu, sigma, lower, upper):
+        Z = norm.cdf(upper, loc=mu, scale=sigma) - norm.cdf(lower, loc=mu, scale=sigma)
+        return norm.pdf(x, loc=mu, scale=sigma) / Z if Z > 0 else 0.0
+
+    def _gaussian_cdf(self, x, mu, sigma):
+        return norm.cdf(x, loc=mu, scale=sigma)
+
+    def _build_transition_matrix(self):
+        T = np.zeros((self.K, self.K))
+        for s in range(self.K):
+            x = self.grid[s]
+            mu = x + self.beta * self.dt
+            std = self.sigma * np.sqrt(self.dt)
+
+            if x >= 1.0:
+                T[s, -1] = 1.0
+                continue
+
+            for s_prime in range(self.K):
+                x_next = self.grid[s_prime]
+                if x > 0:
+                    T[s, s_prime] = self._truncated_normal_pdf(x_next, mu, std, 0, 1)
+                else:
+                    if x_next == 0:
+                        T[s, s_prime] = self._gaussian_cdf(0, mu, std)
+                    else:
+                        T[s, s_prime] = self._truncated_normal_pdf(x_next, mu, std, 0, 1)
+
+            row_sum = T[s].sum()
+            if row_sum > 0:
+                T[s] /= row_sum
+            else:
+                T[s, s] = 1.0  # Fallback to identity if all probabilities are 0
+
+        return T
+
+    def _build_initial_distribution(self):
+        mu = self.x0
+        std = self.sigma * np.sqrt(self.dt)
+        pi = np.array([self._truncated_normal_pdf(x, mu, std, 0, 1) for x in self.grid])
+        return pi / pi.sum()
+
+    def plot_transition_matrix(self):
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(self.T, cmap="viridis", cbar=True, square=True)
+        plt.title("Transition Matrix Heatmap")
+        plt.xlabel("Next state $s'$")
+        plt.ylabel("Current state $s$")
+        plt.tight_layout()
+        plt.show()
+
+    def plot_initial_distribution(self):
+        plt.figure(figsize=(8, 4))
+        plt.plot(self.grid, self.pi, drawstyle='steps-mid')
+        plt.title("Initial State Distribution $\pi$")
+        plt.xlabel("$x$")
+        plt.ylabel("Probability")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+
+    def simulate_trajectory(self, T_steps):
+        s_t = np.random.choice(self.K, p=self.pi)
+        trajectory = [self.grid[s_t]]
+        for _ in range(T_steps - 1):
+            s_t = np.random.choice(self.K, p=self.T[s_t])
+            trajectory.append(self.grid[s_t])
+        return np.array(trajectory)
