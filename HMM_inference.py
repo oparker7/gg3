@@ -482,7 +482,7 @@ def ramp_inference_scan(
 def step_inference_scan(
     true_m=100.0,
     true_r=4,
-    T=500,
+    T=100,
     N=100,
     m_range=(0.25, 0.75),
     r_range=(1, 6),

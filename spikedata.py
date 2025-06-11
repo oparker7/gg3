@@ -43,7 +43,7 @@ def simulate_spikes_standalone(K, beta, sigma, dt, R_h, n_steps=100, initial_sta
     x_values = np.arange(K) / (K - 1)
 
     states = np.zeros(n_steps + 1, dtype=int)
-    states[0] = initial_state
+    states[0] = round(initial_state*(K-1))
 
     for t in range(n_steps):
         probs = T[states[t], :]
@@ -57,12 +57,12 @@ def simulate_spikes_standalone(K, beta, sigma, dt, R_h, n_steps=100, initial_sta
 
 def ramp_sample_prior_and_simulate_spikes(
     N,                  # Number of spike trains
-    K=50,
+    K=100,
     R_h=50.0,
     n_steps=100,
     beta_range=(0.0, 4),
     sigma_range=(0.04, 4),
-    M=25,
+    M=30,
     prior_type='uniform',
     prior_sd_fraction=0.25,
     seed=None
@@ -171,7 +171,7 @@ def simulate_step_markov_chain(T, K, n_steps, exact=True, r=None):
         tau_true = n_steps
     return states, tau_true
 
-def simulate_spikes_from_states(states, n_steps, R_low=5.0, R_high=50.0, dt=1.0, exact=False, r=None):
+def simulate_spikes_from_states(states, n_steps, R_low=5.0, R_high=50.0, dt=0.1, exact=False, r=None):
     spikes = np.zeros(n_steps + 1, dtype=int)
     for t in range(n_steps + 1):
         if (not exact and states[t] == 1) or (exact and states[t] == r):
@@ -285,7 +285,7 @@ def step_sample_prior_and_simulate_spikes(
 
 
 ## here is how to generate the data we need
-
+'''
 from spikedata import ramp_sample_prior_and_simulate_spikes as ramp_datagen
 from spikedata import step_sample_prior_and_simulate_spikes as step_datagen
 
@@ -317,3 +317,5 @@ for sig in widths:
     gaussian_step_data_vary_width[sig] = step_datagen(N=fixed_N_for_vary_gaussian_width,
                                                       prior_type='gaussian',
                                                       prior_sd_fraction=sig)
+
+                                                      '''
