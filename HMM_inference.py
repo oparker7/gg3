@@ -715,3 +715,48 @@ def bayes_model_selection_scan(spike_trains, T_grid, lambdas,
         })
 
     return results
+
+
+
+# ---------- fast scan helpers (no plotting, no grid building) ----------
+def marginal_ll_ramp(spike_trains, T_grid, lambdas):
+    """
+    Quickly compute log p(D | ramp-model) for an *entire dataset*
+    (sums the log marginal-likelihood over trials).
+    """
+    N, T = spike_trains.shape
+    pi0 = np.zeros(lambdas.shape[0]); pi0[0] = 1.0     # always start in 0
+    M1, M2 = T_grid.shape[:2]
+
+    def ll_on_cell(i, j):
+        Ps = T_grid[i, j]
+        s = 0.0
+        for y in spike_trains:
+            ll = poisson_logpdf(y, lambdas)            # (T, K)
+            s += hmm_normalizer(pi0, Ps, ll)
+        return s
+
+    # no need for joblib – grid is tiny now
+    ll_grid = np.array([[ll_on_cell(i, j) for j in range(M2)]
+                                     for i in range(M1)])
+    return logsumexp(ll_grid)          # integrates over (β,σ) with flat prior
+
+def marginal_ll_step(spike_trains, Ps_grid, rates, m_vals, r_vals):
+    """
+    Same as marginal_ll_ramp but for the step model.
+    Ps_grid shape  = (len(m_vals), len(r_vals), 2, 2)
+    rates          = [λ_low, λ_high]   already multiplied by dt
+    """
+    pi0 = np.array([1.0, 0.0])
+    ll_grid = np.empty((len(m_vals), len(r_vals)))
+
+    for i, m in enumerate(m_vals):
+        for j, r in enumerate(r_vals):
+            Ps = Ps_grid[i, j]
+            s = 0.0
+            for y in spike_trains:
+                ll = poisson_logpdf(y, rates)          # (T, 2)
+                s += hmm_normalizer(pi0, Ps, ll)
+            ll_grid[i, j] = s
+    return logsumexp(ll_grid)
+
