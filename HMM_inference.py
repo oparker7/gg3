@@ -565,7 +565,7 @@ def step_inference_scan(
         rates = np.full(K, R_low * dt)
         rates[-1] = R_high * dt
 
-        # --- accumulate log evidence over trials -----------------------
+        # accumulate log evidence over trials 
         ll_total = 0.0
         for spikes in spike_trains:           # ‘spikes’ is 1-D, shape (T+1,)
             # poisson_logpdf(counts 1-D, rates 1-D)  has shape  (T+1, K)
