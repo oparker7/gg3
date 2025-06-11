@@ -183,8 +183,8 @@ def simulate_spikes_from_states(states, n_steps, R_low=5.0, R_high=50.0, dt=1.0,
 
 def step_sample_prior_and_simulate_spikes(
     N,
-    m_range=(0, 750),
-    r_range=(1, 5),
+    m_range=(0, 75),
+    r_range=(1, 6),
     M_m=30,
     M_r=None,
     prior_type='uniform',
