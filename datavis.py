@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import models
 from scipy.signal import convolve
 from scipy.ndimage import gaussian_filter1d
+import itertools
+import seaborn as sns
 
 def _find_bound_times_ramp(xs):
     T     = xs.shape[1]
@@ -49,6 +51,35 @@ def rampRasterPlot(beta_list, sigma_list,
     ax[0, 0].legend(handles=_spike_bound_handles, loc="upper right", frameon=False)
     plt.tight_layout()
     return fig
+
+def overall_ramp_walk_plot(beta_list, sigma_list, n_trials=5000, T=1000):
+    n_to_plot = min(n_trials, 3)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Generate a distinct color for each parameter combination
+    color_cycle = sns.color_palette("husl", len(beta_list) * len(sigma_list))
+
+    for idx, (b, s) in enumerate(itertools.product(beta_list, sigma_list)):
+        ramp = models.RampModel(beta=b, sigma=s, x0=0)
+        _, xs, _ = ramp.simulate(Ntrials=n_trials, T=T)
+
+        # Plot a few individual trial paths
+        for k in range(n_to_plot):
+            ax.plot(xs[k], color=color_cycle[idx], alpha=0.75)
+
+        # Plot the mean trajectory
+        ax.plot(xs.mean(0), color=color_cycle[idx], lw=2, label=rf"$\beta$={b}, $\sigma$={s}")
+
+    ax.set_ylim(0, 1.1)
+    ax.set_xlim(0, T)
+    ax.set_title("Ramp Walk Plot Across Parameter Space", fontsize=24)
+    ax.set_xlabel("Time", fontsize=18)
+    ax.set_ylabel("$x_t$", fontsize=18)
+    ax.legend(frameon=False, fontsize=18, loc='upper left',
+    bbox_to_anchor=(1.05, 0.75))  # X=1.05 moves it just outside the plot to the right)
+    plt.tight_layout()
+    plt.show()
 
 def rampWalkPlot(beta_list, sigma_list,
                    n_trials=5000, T=1000):
@@ -134,6 +165,32 @@ def _smooth(arr, win):
     kernel = np.ones(int(win)) / win
     return convolve(arr, kernel, mode='same')
 
+def overall_step_walk_plot(m_list, r_list, n_trials=5000, T=1000):
+    n_to_plot = min(n_trials, 3)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    color_cycle = sns.color_palette("husl", len(m_list) * len(r_list))
+
+    for idx, (m, r) in enumerate(itertools.product(m_list, r_list)):
+        step = models.StepModel(m=m, r=r)
+        _, _, rates = step.simulate(Ntrials=n_trials, T=T)
+
+        for k in range(n_to_plot):
+            ax.plot(rates[k], color=color_cycle[idx], alpha=0.75)
+
+        ax.plot(rates.mean(0), color=color_cycle[idx], lw=2,
+                label=rf"$m$={m}, $\it{{r}}$={r}")
+
+    ax.set_ylim(0, 55)
+    ax.set_xlim(0, T)
+    ax.set_title("Step Walk Plot Across Parameter Space", fontsize=24)
+    ax.set_xlabel("Time", fontsize=18)
+    ax.set_ylabel("Firing Rate", fontsize=18)
+    ax.legend(frameon=False, fontsize=18, loc='upper left',
+              bbox_to_anchor=(1.05, 0.75))
+    plt.tight_layout()
+    plt.show()
 # convolution with 1d laplacian kernel
 def laplacian(arr, plot=True):
     laplacian1d = np.array([-1, 16, -30, 16, -1]) / 12
@@ -191,6 +248,50 @@ def psth_grid(model_cls, p1_list, p2_list,
     fig.tight_layout(rect=[0, 0, 1, .92])
     return fig
 
+
+def overall_psth_plot(model_cls, p1_list, p2_list,
+                      p1_name, p2_name,
+                      n_trials=100, T=1000,
+                      bin_width=50, smooth_ms=None,
+                      ymax=55):
+    """
+    Overlayed PSTH for all (p1, p2) parameter combinations in one plot.
+    model_cls : models.RampModel or models.StepModel
+    p1_list   : list of first parameter (β or m)
+    p2_list   : list of second parameter (σ or r)
+    """
+    edges, n_bins = _bin_edges_and_count(bin_width, T)
+    fig, ax = plt.subplots(figsize=(10, 6))
+    color_cycle = sns.color_palette("husl", len(p1_list) * len(p2_list))
+
+    for idx, (p1, p2) in enumerate(itertools.product(p1_list, p2_list)):
+        model = model_cls(p1, p2) if model_cls is models.StepModel \
+                else model_cls(beta=p1, sigma=p2)
+
+        spikes, *_ = model.simulate(Ntrials=n_trials, T=T)
+        spike_times = np.where(spikes)[1]  # column indices are spike times
+        psth, _ = np.histogram(spike_times, bins=edges)
+        psth = psth / n_trials / (bin_width / 1000)  # convert to Hz
+        psth = _smooth(psth, smooth_ms // bin_width if smooth_ms else None)
+
+        ax.plot(edges[:-1], psth, lw=2, color=color_cycle[idx],
+                label=fr"{p1_name}={p1}, {p2_name}={p2}")
+
+    ax.set_ylim(0, ymax)
+    ax.set_xlim(0, T)
+    ax.set_xlabel("Time (ms)", fontsize=18)
+    ax.set_ylabel("Hz", fontsize=18)
+    ax.set_title(f"PSTH – {model_cls.__name__}", fontsize=24)
+    ax.legend(frameon=False, fontsize=18, loc='upper left',
+              bbox_to_anchor=(1.05, 0.75))
+    plt.tight_layout()
+    plt.subplots_adjust(right=0.75)
+    plt.grid(True, ls='--', lw=0.5, color='#e0e0e0')
+    return fig
+
+
+
+
 # Fano-factor time–series for a single setting
 def fanoFactor(model, n_trials=5000, T=1000,
                 bin_width=50, smooth_ms=None,
@@ -218,11 +319,11 @@ def fanoFactor(model, n_trials=5000, T=1000,
     if plot:
         if ax is None: ax = plt.gca()
         ax.plot(times, fano, label=label)
-        ax.set_xlabel("time (ms)", fontsize=18); ax.set_ylabel("Fano factor", fontsize=18)
+        ax.set_xlabel("Time (ms)", fontsize=18); ax.set_ylabel("Fano factor", fontsize=18)
         ax.set_ylim(bottom=0, top=1.8)
         ax.grid(True, ls='--', lw=.4, color='#e5e5e5')
-        ax.set_title(title, fontsize=22)
-        ax.legend(ncol=2, fontsize=12)
+        ax.set_title(title, fontsize=24)
+        ax.legend(ncol=2, fontsize=18)
 
     return times, fano
 
