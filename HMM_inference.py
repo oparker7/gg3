@@ -316,7 +316,7 @@ def ramp_inference_scan(
     true_beta=2,  # these are only used if
     true_sigma=1, # no spktrn_arg is used
     fixed_rh=50.0,
-    T=500,
+    T=100,
     N=100,
     K=50,
     beta_range=(0, 4),
@@ -465,11 +465,13 @@ def ramp_inference_scan(
         cbar = fig.colorbar(contour, ax=ax, label='Posterior Probability')
 
         # Mark true parameter location
-        ax.scatter(true_sigma, true_beta, color='black', edgecolors='white', label='True Params', linewidth=2, s=200)
+        if spktrn_arg is None:
+            ax.scatter(true_sigma, true_beta, color='black', edgecolors='white', label='True Params', linewidth=2, s=200)
         ax.set_xlabel(r'$\sigma$', fontsize=20)
         ax.set_ylabel(r'$\beta$', fontsize=20)
         ax.set_title(f'Ramp Model Posterior (N={N}, Prior={prior_type})')
-        ax.legend(fontsize=18)
+        if spktrn_arg is None:
+            ax.legend(fontsize=18)
 
     # --------------------
     # RETURN values:
@@ -618,11 +620,12 @@ def step_inference_scan(
         ax.set_xlabel('r (discrete)', fontsize=16)
         ax.set_ylabel('m (continuous)', fontsize=16)
 
-        ax.scatter(true_r, true_m, color='black', edgecolors='white',
+        if spktrn_arg is None:
+            ax.scatter(true_r, true_m, color='black', edgecolors='white',
                    label='True Params', linewidth=2, s=200)
+            ax.set_title(f'Step Model Posterior (N={N}, Prior={prior_type})')
 
         ax.set_title(f'Step Model Posterior (N={N}, Prior={prior_type})')
-        ax.legend(fontsize=18)
     '''
     if plot:
         # Plot posterior
@@ -641,7 +644,6 @@ def step_inference_scan(
         ax.legend(fontsize=18)
         '''
     return posterior, m_vals, r_vals, marginal_log_likelihood, ax
-
 
 def bayes_model_selection_scan(spike_trains, T_grid, lambdas,
                                m_vals, r_vals, R_low, R_high, dt):
